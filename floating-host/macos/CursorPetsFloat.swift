@@ -260,7 +260,8 @@ final class FloatingPetApp: NSObject, NSApplicationDelegate {
   }
 }
 
-let statePath = CommandLine.arguments.dropFirst().first ?? ""
+/// Spawned as `swift CursorPetsFloat.swift <floating-pet-state.json>` — state JSON is always the last CLI argument.
+let statePath = CommandLine.arguments.dropFirst().last ?? ""
 let app = NSApplication.shared
 let delegate = FloatingPetApp(statePath: statePath)
 app.setActivationPolicy(.accessory)

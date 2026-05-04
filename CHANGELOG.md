@@ -1,5 +1,82 @@
 # Changelog
 
+## 0.14.0
+
+- **Floating pet (macOS) reset to the last known-good Git baseline** (`4638596`, pre–spritesheet-cache experiments): restored **`CursorPetsFloat.swift`** to that simpler implementation (`NSImage(data:)` + `Data(contentsOf:)` for `pet.asset.entry`, no ImageIO-only paths, no extra JSON fields).
+- **Extension host**: `FloatingPetHost` again writes the snapshot JSON as-is (no disk sprite cache, no `floatSpritesheetLocalPath`, no signal file / `fs.watch` for “open chat from float”). Spawn and LaunchAgent plist use **two** arguments after `swift`: **script path** and **state JSON path**.
+- **CLI fix**: Swift reads the state path as **`CommandLine.arguments.dropFirst().last`** so it stays correct when extra arguments are ever added ahead of the path.
+- **Trade-off**: GitPets spritesheets that only load reliably via the removed cache path may again show the **yellow placeholder** if `swift` cannot fetch or decode the remote asset; the next fix should be a single measured change, not stacked workarounds. **Open AI Chat** remains available via the command palette (`cursorPets.openChat`); the float window no longer includes the bottom chat strip from later versions.
+
+## 0.13.3
+
+- **Floating spritesheet**: added **`floatSpritesheetLocalPath`** on the float JSON snapshot so Swift **always loads the cached file from that path** while **`pet.asset.entry` stays the original https URL** (avoids confusing decode / cache round-trips). Swift reads `floatSpritesheetLocalPath` first, then falls back to `asset.entry`.
+- **Download**: if **`fetch` fails**, retry the same URL with **`https.get`** (redirects + 45s timeout), matching environments where `fetch` misbehaves.
+
+## 0.13.2
+
+- **Floating Steve / WebP regression**: WebP decoded via ImageIO was wrapped in `NSImage(cgImage:size:)`, which often makes `cgImage(forProposedRect:)` return **nil** so **nothing** was drawn and the UI fell back to the yellow placeholder. Fixed by building the image with **`NSBitmapImageRep(cgImage:)`** + `addRepresentation`, and a **`drawSpritesheetPet`** fallback that reads **`NSBitmapImageRep.cgImage`**.
+- **Float cache**: do not treat **`//…`** URLs as POSIX paths; **re-download** if the cached file is not a real image (magic-byte sniff: JPEG, PNG, WebP, GIF).
+
+## 0.13.1
+
+- **Floating spritesheet**: Swift now decodes **WebP** via **ImageIO / `CGImageSource`** when `NSImage(data:)` fails (common cause of the yellow placeholder even with a valid cached file).
+- **Float cache download**: uses a **browser-like User-Agent**, **Accept** for images, and **Referer: https://gitpets.com/** for GitPets CDN URLs; drops tiny / corrupt cache files and re-fetches; writes an absolute **POSIX path** (`fsPath`) into the snapshot JSON for Swift `Data(contentsOf:)` (avoids `file://` edge cases).
+
+## 0.13.0
+
+- **Floating pet**: remote **spritesheet** URLs are **cached to disk** by the extension and the float receives a **`file://` URL**, so GitPets-style pets (e.g. Steve) render in the float instead of the yellow **placeholder** when HTTPS load from Swift failed.
+- **Chat from float only (by default in the UI)**: removed the sidebar **“Ouvrir le chat Cursor”** banner, the panel **AI chat** toolbar control, the **status-bar** chat chip, and the **view-title** menu entry. Use **`CursorPets: Open AI Chat`** from the Command Palette when the float is closed, or **`Ouvrir le chat Cursor`** on the **floating** window (dedicated strip at the bottom, always above the pet drawing).
+
+## 0.12.3
+
+- **Floating pet (macOS)** now includes a **Chat** button at the bottom of the window. It writes to a small signal file that the extension watches so **Cursor AI chat** opens from the desktop float, not only from the sidebar panel.
+- LaunchAgent plist now passes the **signal file path** as a third argument (still compatible with older two-arg invocations via derived path next to `floating-pet-state.json`).
+
+## 0.12.2
+
+- Fixed **`view/title` menu when clause**: `view == cursorPets.petView` never matched (dots parsed as nested context). Now **`view == 'cursorPets.petView'`** so the chat icon appears on the Pet view header.
+- **Status bar** chat entry shows the label **“AI chat”** next to the icon, is **`show()`n on activation**, not only after the first render.
+- Added a **full-width banner** at the top of the Pet panel: **“Ouvrir le chat Cursor”**.
+
+## 0.12.1
+
+- **AI chat access** is easier to find: **comment icon** in the **status bar** (left of the pet chip), **view title** action on the Pet sidebar, and a clearer **“AI chat”** panel button (primary styling). Webview script no longer crashes if `#openChat` is missing.
+- **Open chat** tries more workbench commands in order (`openAgentsView`, auxiliary bar toggle, etc.) and no longer skips commands that were absent from `getCommands()` but still executable.
+
+## 0.12.0
+
+- Added **`cursorPets.tasks.reactToProcessExit`** (default on): task announcements now reflect **process exit codes** (success for 0, error for non-zero, warning when terminated without a code). Tasks without an underlying process still get the generic “Task finished” line.
+- Documented **Open AI Chat**, **Announce Clipboard**, and the French requirements doc in **`README.md`**; linked **`BESOINS.md`** from the development section.
+- Updated **`BESOINS.md`** backlog notes for task/build reactions and command-list maintenance.
+
+## 0.11.0
+
+- Added a **Chat** toolbar button in the CursorPets panel to open Cursor AI chat / agent via workbench commands, with fallbacks when command IDs differ by build.
+- Added the **CursorPets: Open AI Chat** command (`cursorPets.openChat`) and matching activation event.
+- Adjusted the panel toolbar grid to fit the new control (three columns).
+- Added **`BESOINS.md`**, a French requirements / roadmap checklist for the plugin.
+
+## 0.10.0
+
+- Added terminal shell output announcements for the floating message bubble when shell integration is available.
+- Added terminal output length settings and ANSI cleanup.
+
+## 0.9.0
+
+- Added floating window movement detection.
+- Switched spritesheet row while the floating window moves so the pet runs in the drag direction.
+
+## 0.8.0
+
+- Added macOS LaunchAgent install and uninstall commands for login-time floating pet startup.
+- Restored eager activation and startup diagnostic commands in the packaged manifest.
+- Kept transparent floating frame defaults.
+
+## 0.7.5
+
+- Made the floating pet frame fully transparent by default.
+- Added `cursorPets.float.showFrame` to optionally restore the rounded frame.
+
 ## 0.7.4
 
 - Kept the floating helper alive during Cursor reload by default.

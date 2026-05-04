@@ -63,6 +63,51 @@
                 "type": "integer",
                 "minimum": 0
               },
+              "runRow": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Deprecated: use notifyRow. If set without notifyRow, used as the notification / wave row."
+              },
+              "runFrames": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Deprecated: use notifyFrames."
+              },
+              "notifyRow": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Spritesheet row for the short 'notification / wave' loop after an announcement (GitPets card hover uses row 3)."
+              },
+              "notifyFrames": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Frame count on notifyRow for the notification gesture."
+              },
+              "walkRowDown": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Spritesheet row while dragging the float window downward."
+              },
+              "walkRowLeft": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Spritesheet row while dragging the float window left."
+              },
+              "walkRowRight": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Spritesheet row while dragging the float window right."
+              },
+              "walkRowUp": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Spritesheet row while dragging the float window upward."
+              },
+              "walkFrames": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Frame count per walk row while the float window is dragged."
+              },
               "scale": {
                 "type": "number",
                 "exclusiveMinimum": 0

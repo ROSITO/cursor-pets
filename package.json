@@ -2,7 +2,7 @@
   "name": "cursor-pets",
   "displayName": "CursorPets",
   "description": "Bring GitPets-style Codex pets into Cursor as a lightweight coding companion.",
-  "version": "0.7.4",
+  "version": "0.14.0",
   "publisher": "rosito",
   "license": "UNLICENSED",
   "repository": {
@@ -16,6 +16,7 @@
     "Other"
   ],
   "activationEvents": [
+    "onStartupFinished",
     "onView:cursorPets.petView",
     "onCommand:cursorPets.showPet",
     "onCommand:cursorPets.hidePet",
@@ -25,7 +26,13 @@
     "onCommand:cursorPets.importGitPetsUrl",
     "onCommand:cursorPets.announceNotification",
     "onCommand:cursorPets.testNotification",
-    "onCommand:cursorPets.clearNotifications"
+    "onCommand:cursorPets.clearNotifications",
+    "onCommand:cursorPets.startFloatingPet",
+    "onCommand:cursorPets.installLoginLaunchAgent",
+    "onCommand:cursorPets.uninstallLoginLaunchAgent",
+    "onCommand:cursorPets.diagnoseStartup",
+    "onCommand:cursorPets.announceFromClipboard",
+    "onCommand:cursorPets.openChat"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -65,6 +72,30 @@
       {
         "command": "cursorPets.clearNotifications",
         "title": "CursorPets: Clear Notifications"
+      },
+      {
+        "command": "cursorPets.startFloatingPet",
+        "title": "CursorPets: Start Floating Pet"
+      },
+      {
+        "command": "cursorPets.installLoginLaunchAgent",
+        "title": "CursorPets: Install Login Launch Agent (macOS)"
+      },
+      {
+        "command": "cursorPets.uninstallLoginLaunchAgent",
+        "title": "CursorPets: Uninstall Login Launch Agent (macOS)"
+      },
+      {
+        "command": "cursorPets.diagnoseStartup",
+        "title": "CursorPets: Diagnose Startup"
+      },
+      {
+        "command": "cursorPets.announceFromClipboard",
+        "title": "CursorPets: Announce Clipboard in Pet (e.g. AI reply)"
+      },
+      {
+        "command": "cursorPets.openChat",
+        "title": "CursorPets: Open AI Chat"
       }
     ],
     "configuration": {
@@ -100,6 +131,11 @@
           "default": true,
           "description": "Let the pet react when diagnostics change."
         },
+        "cursorPets.tasks.reactToProcessExit": {
+          "type": "boolean",
+          "default": true,
+          "description": "When a task runs a real process, announce success vs failure using its exit code (via onDidEndTaskProcess). Turn off to only get the generic \"Task finished\" message on onDidEndTask."
+        },
         "cursorPets.float.autoStart": {
           "type": "boolean",
           "default": true,
@@ -118,6 +154,44 @@
           "minimum": 0,
           "maximum": 1,
           "description": "Controls the floating pet message bubble opacity."
+        },
+        "cursorPets.agentTranscripts.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Read Cursor Agent .jsonl transcripts under ~/.cursor/projects/<workspace>/agent-transcripts and show the latest assistant reply in the pet bubble (best-effort, Cursor-specific)."
+        },
+        "cursorPets.agentTranscripts.minChars": {
+          "type": "number",
+          "default": 24,
+          "minimum": 8,
+          "maximum": 500,
+          "description": "Minimum visible characters required before announcing an assistant message from transcripts."
+        },
+        "cursorPets.agentTranscripts.maxChars": {
+          "type": "number",
+          "default": 3200,
+          "minimum": 200,
+          "maximum": 8000,
+          "description": "Maximum characters of assistant text shown in the bubble."
+        },
+        "cursorPets.agentTranscripts.tailBytes": {
+          "type": "number",
+          "default": 800000,
+          "minimum": 60000,
+          "maximum": 2000000,
+          "description": "How many trailing bytes to read from the transcript file (large logs are tail-read)."
+        },
+        "cursorPets.terminal.announceOutput": {
+          "type": "boolean",
+          "default": false,
+          "description": "Announce integrated terminal shell output in the pet (command-line, not Agent chat). Prefer agent transcripts or \"Announce Clipboard in Pet\" for AI text."
+        },
+        "cursorPets.terminal.maxOutputChars": {
+          "type": "number",
+          "default": 220,
+          "minimum": 80,
+          "maximum": 1000,
+          "description": "Max characters of terminal output to show when terminal announcements are enabled."
         }
       }
     },

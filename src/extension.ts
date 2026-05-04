@@ -1,6 +1,9 @@
+import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
+import { watch as fsWatch } from "node:fs";
+import type { Dirent, FSWatcher } from "node:fs";
 import * as path from "node:path";
-import { ChildProcess, spawn } from "node:child_process";
+import { ChildProcess, execFileSync, spawn } from "node:child_process";
 import * as https from "node:https";
 import * as vscode from "vscode";
 
@@ -12,6 +15,19 @@ interface PetAsset {
   entry: string;
   frames?: number;
   row?: number;
+  /** Row for the brief wave / emphasis loop after a notification (GitPets card hover). */
+  notifyRow?: number;
+  notifyFrames?: number;
+  /** Walk-cycle rows while dragging the floating window (directional). */
+  walkRowDown?: number;
+  walkRowLeft?: number;
+  walkRowRight?: number;
+  walkRowUp?: number;
+  walkFrames?: number;
+  /** @deprecated Prefer notifyRow — still read by older manifests. */
+  runRow?: number;
+  /** @deprecated Prefer notifyFrames. */
+  runFrames?: number;
   scale?: number;
   frameWidth?: number;
   frameHeight?: number;
@@ -56,6 +72,8 @@ interface PetState {
   };
   notifications: PetNotification[];
   unreadNotifications: number;
+  /** Epoch ms — floating pet plays notifyRow until this time after an announcement. */
+  notificationWaveUntil?: number;
 }
 
 interface WebviewAction {
@@ -80,6 +98,7 @@ interface FloatingPetSnapshot {
   options: {
     backgroundOpacity: number;
     messageOpacity: number;
+    showFrame: boolean;
   };
 }
 
@@ -104,6 +123,11 @@ class CursorPetsController implements vscode.Disposable {
   private catalog: PetCatalog = { version: 1, source: "empty", pets: [] };
   private state: PetState;
   private lastDiagnostics = { errors: 0, warnings: 0 };
+  private agentTranscriptWatchClosers: Array<() => void> = [];
+  private agentTranscriptPollTimer: NodeJS.Timeout | undefined;
+  private lastAgentTranscriptFingerprint = "";
+  /** When `tasks.reactToProcessExit` is on, we announce on `onDidEndTaskProcess` and skip the generic `onDidEndTask` success for the same execution. */
+  private readonly taskProcessExitAnnounced = new WeakMap<vscode.TaskExecution, true>();
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.state = this.createInitialState();
@@ -117,7 +141,6 @@ class CursorPetsController implements vscode.Disposable {
     this.statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 80);
     this.statusBar.command = "cursorPets.showPet";
     this.statusBar.tooltip = "Show CursorPets";
-
     this.disposables.push(
       this.statusBar,
       vscode.window.registerWebviewViewProvider(VIEW_ID, this.provider, {
@@ -135,7 +158,11 @@ class CursorPetsController implements vscode.Disposable {
       ),
       vscode.commands.registerCommand("cursorPets.clearNotifications", () => this.clearNotifications()),
       vscode.commands.registerCommand("cursorPets.startFloatingPet", () => this.openFloatingPet()),
+      vscode.commands.registerCommand("cursorPets.installLoginLaunchAgent", () => this.installLoginLaunchAgent()),
+      vscode.commands.registerCommand("cursorPets.uninstallLoginLaunchAgent", () => this.uninstallLoginLaunchAgent()),
       vscode.commands.registerCommand("cursorPets.diagnoseStartup", () => this.diagnoseStartup()),
+      vscode.commands.registerCommand("cursorPets.announceFromClipboard", () => this.announceFromClipboard()),
+      vscode.commands.registerCommand("cursorPets.openChat", () => void this.openCursorChat()),
       vscode.workspace.onDidSaveTextDocument((document) => this.announce("success", "File saved", path.basename(document.fileName), "Workspace")),
       vscode.window.onDidChangeActiveTextEditor((editor) => {
         if (editor) {
@@ -144,13 +171,18 @@ class CursorPetsController implements vscode.Disposable {
       }),
       vscode.languages.onDidChangeDiagnostics(() => this.refreshDiagnostics()),
       vscode.tasks.onDidStartTask((event) => this.announce("info", "Task started", event.execution.task.name, "Tasks")),
-      vscode.tasks.onDidEndTask((event) => this.announce("success", "Task finished", event.execution.task.name, "Tasks")),
+      vscode.tasks.onDidEndTaskProcess((event) => this.handleTaskProcessEnd(event)),
+      vscode.tasks.onDidEndTask((event) => this.handleTaskEnd(event)),
       vscode.debug.onDidStartDebugSession((session) => this.announce("info", "Debug started", session.name, "Debug")),
       vscode.debug.onDidTerminateDebugSession((session) => this.announce("success", "Debug ended", session.name, "Debug")),
+      vscode.window.onDidStartTerminalShellExecution((event) => this.watchTerminalShellOutput(event)),
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration("cursorPets")) {
           this.reloadConfiguration();
         }
+      }),
+      vscode.workspace.onDidChangeWorkspaceFolders(() => {
+        this.startAgentTranscriptWatchers();
       })
     );
 
@@ -160,16 +192,16 @@ class CursorPetsController implements vscode.Disposable {
       this.touchActivity("CursorPets is awake.");
       this.render();
       this.scheduleAutoFloat();
+      this.startAgentTranscriptWatchers();
     });
   }
 
   dispose(): void {
+    this.stopAgentTranscriptWatchers();
     if (this.inactivityTimer) {
       clearTimeout(this.inactivityTimer);
     }
-    for (const timer of this.startupTimers) {
-      clearTimeout(timer);
-    }
+    this.clearAutoFloatTimers();
     for (const disposable of this.disposables) {
       disposable.dispose();
     }
@@ -261,7 +293,110 @@ class CursorPetsController implements vscode.Disposable {
     void this.loadCatalog().then(() => {
       this.ensureSelectedPetExists();
       this.render();
+      this.scheduleAutoFloat();
+      this.startAgentTranscriptWatchers();
     });
+  }
+
+  private clearAutoFloatTimers(): void {
+    for (const timer of this.startupTimers) {
+      clearTimeout(timer);
+    }
+    this.startupTimers = [];
+  }
+
+  private stopAgentTranscriptWatchers(): void {
+    if (this.agentTranscriptPollTimer) {
+      clearTimeout(this.agentTranscriptPollTimer);
+      this.agentTranscriptPollTimer = undefined;
+    }
+    for (const close of this.agentTranscriptWatchClosers) {
+      try {
+        close();
+      } catch {
+        // ignore
+      }
+    }
+    this.agentTranscriptWatchClosers.length = 0;
+  }
+
+  private startAgentTranscriptWatchers(): void {
+    this.stopAgentTranscriptWatchers();
+    const cfg = vscode.workspace.getConfiguration("cursorPets");
+    if (!cfg.get("agentTranscripts.enabled", true)) {
+      return;
+    }
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+      const root = agentTranscriptsRootForWorkspace(folder.uri.fsPath);
+      void fs.mkdir(root, { recursive: true }).catch(() => undefined);
+      try {
+        const watcher = fsWatch(root, { recursive: true }, () => this.scheduleAgentTranscriptPoll());
+        this.agentTranscriptWatchClosers.push(() => watcher.close());
+      } catch {
+        // Missing until first Agent session in this workspace.
+      }
+    }
+    this.scheduleAgentTranscriptPoll();
+  }
+
+  private scheduleAgentTranscriptPoll(): void {
+    if (this.agentTranscriptPollTimer) {
+      clearTimeout(this.agentTranscriptPollTimer);
+    }
+    this.agentTranscriptPollTimer = setTimeout(() => {
+      this.agentTranscriptPollTimer = undefined;
+      void this.pollAgentAssistantOutput();
+    }, 550);
+  }
+
+  private async pollAgentAssistantOutput(): Promise<void> {
+    const cfg = vscode.workspace.getConfiguration("cursorPets");
+    if (!cfg.get("agentTranscripts.enabled", true)) {
+      return;
+    }
+    const minChars = clamp(cfg.get("agentTranscripts.minChars", 24) as number, 8, 500);
+    const maxBody = clamp(cfg.get("agentTranscripts.maxChars", 3200) as number, 200, 8000);
+    const tailBytes = clamp(cfg.get("agentTranscripts.tailBytes", 800_000) as number, 60_000, 2_000_000);
+
+    let newestPath: string | undefined;
+    let newestM = 0;
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+      const root = agentTranscriptsRootForWorkspace(folder.uri.fsPath);
+      const paths = await collectAgentJsonlPaths(root);
+      for (const p of paths) {
+        try {
+          const st = await fs.stat(p);
+          if (st.mtimeMs > newestM) {
+            newestM = st.mtimeMs;
+            newestPath = p;
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+    if (!newestPath) {
+      return;
+    }
+    let tail: string;
+    try {
+      tail = await readFileTailUtf8(newestPath, tailBytes);
+    } catch {
+      return;
+    }
+    const text = lastAssistantTextFromJsonlTail(tail);
+    if (!text || text.length < minChars) {
+      return;
+    }
+    const clipped = text.length > maxBody ? `${text.slice(0, maxBody - 3)}...` : text;
+    const fp = createHash("sha256").update(clipped).digest("hex").slice(0, 24);
+    if (fp === this.lastAgentTranscriptFingerprint) {
+      return;
+    }
+    this.lastAgentTranscriptFingerprint = fp;
+    const project =
+      vscode.workspace.name ?? vscode.workspace.workspaceFolders?.[0]?.name ?? "Cursor";
+    this.announce("info", "", clipped, "Cursor Agent", project);
   }
 
   private updateEnabled(enabled: boolean): void {
@@ -272,6 +407,57 @@ class CursorPetsController implements vscode.Disposable {
 
   private resetPet(): void {
     this.react("idle", "Reset and ready.");
+  }
+
+  private handleTaskProcessEnd(event: vscode.TaskProcessEndEvent): void {
+    const useExit = vscode.workspace.getConfiguration("cursorPets").get<boolean>("tasks.reactToProcessExit", true);
+    if (!useExit) {
+      return;
+    }
+    const name = event.execution.task.name;
+    const code = event.exitCode;
+    this.taskProcessExitAnnounced.set(event.execution, true);
+    if (code === undefined) {
+      this.announce("warning", "Task stopped", name, "Tasks");
+      return;
+    }
+    if (code === 0) {
+      this.announce("success", "Task succeeded", `${name} (exit 0)`, "Tasks");
+      return;
+    }
+    this.announce("error", "Task failed", `${name} exited with code ${code}`, "Tasks");
+  }
+
+  private handleTaskEnd(event: vscode.TaskEndEvent): void {
+    const useExit = vscode.workspace.getConfiguration("cursorPets").get<boolean>("tasks.reactToProcessExit", true);
+    if (useExit && this.taskProcessExitAnnounced.has(event.execution)) {
+      this.taskProcessExitAnnounced.delete(event.execution);
+      return;
+    }
+    this.announce("success", "Task finished", event.execution.task.name, "Tasks");
+  }
+
+  /** Opens Cursor’s AI chat / agent UI when available (command IDs vary slightly by build). */
+  private async openCursorChat(): Promise<void> {
+    const candidates = [
+      "workbench.action.chat.open",
+      "workbench.action.openAgentsView",
+      "workbench.action.toggleAgents",
+      "workbench.action.chat.focus",
+      "workbench.action.chat.focusInput",
+      "workbench.action.toggleAuxiliaryBar"
+    ];
+    for (const id of candidates) {
+      try {
+        await vscode.commands.executeCommand(id);
+        return;
+      } catch {
+        /* missing command or handler rejected */
+      }
+    }
+    void vscode.window.showWarningMessage(
+      "CursorPets could not open AI chat. Use Cursor’s Chat/Agent shortcut (often Cmd+L or Cmd+I) from the keyboard."
+    );
   }
 
   private handleWebviewAction(message: WebviewAction): void {
@@ -478,12 +664,13 @@ class CursorPetsController implements vscode.Disposable {
   }
 
   private scheduleAutoFloat(): void {
+    this.clearAutoFloatTimers();
     if (!vscode.workspace.getConfiguration("cursorPets").get("float.autoStart", true)) {
       console.log("CursorPets auto-start disabled.");
       return;
     }
 
-    for (const delay of [250, 1_500, 5_000]) {
+    for (const delay of [250, 1_500, 5_000, 10_000]) {
       const timer = setTimeout(() => {
         console.log(`CursorPets auto-start attempt after ${delay}ms.`);
         void this.openFloatingPet(false);
@@ -504,6 +691,65 @@ class CursorPetsController implements vscode.Disposable {
     ].join("\n");
     vscode.window.showInformationMessage(message, { modal: true });
     console.log(message);
+  }
+
+  private async installLoginLaunchAgent(): Promise<void> {
+    try {
+      const pet = this.catalog.pets.find((candidate) => candidate.id === this.state.selectedPetId);
+      await this.floatingHost.installLaunchAgent(this.createFloatingSnapshot(pet));
+      vscode.window.showInformationMessage("CursorPets LaunchAgent installed. The floating pet will start at macOS login.");
+    } catch (error) {
+      vscode.window.showErrorMessage(`CursorPets could not install LaunchAgent: ${String(error)}`);
+    }
+  }
+
+  private async uninstallLoginLaunchAgent(): Promise<void> {
+    try {
+      await this.floatingHost.uninstallLaunchAgent();
+      vscode.window.showInformationMessage("CursorPets LaunchAgent uninstalled.");
+    } catch (error) {
+      vscode.window.showErrorMessage(`CursorPets could not uninstall LaunchAgent: ${String(error)}`);
+    }
+  }
+
+  private watchTerminalShellOutput(event: vscode.TerminalShellExecutionStartEvent): void {
+    if (!vscode.workspace.getConfiguration("cursorPets").get("terminal.announceOutput", false)) {
+      return;
+    }
+
+    void this.collectTerminalOutput(event.execution, event.terminal);
+  }
+
+  private async collectTerminalOutput(execution: vscode.TerminalShellExecution, terminal: vscode.Terminal): Promise<void> {
+    const config = vscode.workspace.getConfiguration("cursorPets");
+    const maxChars = clamp(config.get("terminal.maxOutputChars", 220), 80, 1000);
+    let output = "";
+
+    try {
+      for await (const chunk of execution.read()) {
+        output = trimTerminalOutput(`${output}${stripAnsi(chunk)}`, maxChars);
+        if (output.length >= maxChars) {
+          break;
+        }
+      }
+    } catch (error) {
+      console.log("CursorPets could not read terminal output.", error);
+      return;
+    }
+
+    const cleaned = trimTerminalOutput(output, maxChars);
+    if (!cleaned) {
+      return;
+    }
+
+    const projectTitle = resolveProjectTitleForTerminal(terminal);
+    this.announce(
+      "info",
+      shortCommand(execution.commandLine.value || "Terminal command"),
+      cleaned,
+      "Terminal",
+      projectTitle
+    );
   }
 
   private refreshDiagnostics(): void {
@@ -542,6 +788,19 @@ class CursorPetsController implements vscode.Disposable {
     this.announce("success", "Diagnostics clear", "No errors or warnings.", "Diagnostics");
   }
 
+  private async announceFromClipboard(): Promise<void> {
+    const raw = (await vscode.env.clipboard.readText()).trim();
+    if (!raw) {
+      vscode.window.showWarningMessage("Clipboard is empty — copy a Cursor Chat reply (or any text) first.");
+      return;
+    }
+    const maxChars = 3_500;
+    const text = raw.length > maxChars ? `${raw.slice(0, maxChars - 3)}...` : raw;
+    const project =
+      vscode.workspace.name ?? vscode.workspace.workspaceFolders?.[0]?.name ?? "Cursor";
+    this.announce("info", "", text, "Clipboard", project);
+  }
+
   private async announceNotificationFromInput(): Promise<void> {
     const body = await vscode.window.showInputBox({
       title: "Announce with CursorPets",
@@ -556,23 +815,50 @@ class CursorPetsController implements vscode.Disposable {
     this.announce("info", "Cursor notification", body, "Manual");
   }
 
-  private announce(level: PetNotificationLevel, title: string, body: string, source: string): void {
+  private announce(
+    level: PetNotificationLevel,
+    title: string,
+    body: string,
+    source: string,
+    messageHeadline?: string
+  ): void {
+    const notificationTitle = messageHeadline ?? title;
+    const notificationBody =
+      messageHeadline !== undefined
+        ? body.length > 0
+          ? title.length > 0
+            ? `${title}\n${body}`
+            : body
+          : title
+        : body;
     const notification: PetNotification = {
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       level,
-      title,
-      body,
+      title: notificationTitle,
+      body: notificationBody,
       source,
       createdAt: new Date().toISOString()
     };
     const mood = notificationMood(level);
-    const message = body ? `${title}: ${body}` : title;
+    let message: string;
+    if (messageHeadline !== undefined) {
+      let detail: string;
+      if (body.length > 0) {
+        detail = title.length > 0 ? `${title}\n${body}` : body;
+      } else {
+        detail = title;
+      }
+      message = `${messageHeadline}\n${detail}`;
+    } else {
+      message = body ? `${title}: ${body}` : title;
+    }
     this.state = {
       ...this.state,
       mood,
       message,
       notifications: [notification, ...this.state.notifications].slice(0, 8),
-      unreadNotifications: Math.min(this.state.unreadNotifications + 1, 99)
+      unreadNotifications: Math.min(this.state.unreadNotifications + 1, 99),
+      notificationWaveUntil: Date.now() + 2_600
     };
     this.touchActivity(message);
     this.render();
@@ -584,7 +870,8 @@ class CursorPetsController implements vscode.Disposable {
       notifications: [],
       unreadNotifications: 0,
       message: "Notifications cleared.",
-      mood: "idle"
+      mood: "idle",
+      notificationWaveUntil: undefined
     };
     this.render();
   }
@@ -623,14 +910,16 @@ class CursorPetsController implements vscode.Disposable {
       state: this.state,
       pet,
       options: {
-        backgroundOpacity: clamp(config.get("float.backgroundOpacity", 0.32), 0, 1),
-        messageOpacity: clamp(config.get("float.messageOpacity", 0.42), 0, 1)
+        backgroundOpacity: clamp(config.get("float.backgroundOpacity", 0), 0, 1),
+        messageOpacity: clamp(config.get("float.messageOpacity", 0.42), 0, 1),
+        showFrame: config.get("float.showFrame", false)
       }
     };
   }
 }
 
 class FloatingPetHost implements vscode.Disposable {
+  private static readonly launchAgentLabel = "com.cursorpets.float";
   private process: ChildProcess | undefined;
   private readonly statePath: string;
   private readonly scriptPath: string;
@@ -651,9 +940,14 @@ class FloatingPetHost implements vscode.Disposable {
   async show(snapshot: FloatingPetSnapshot): Promise<void> {
     await this.update(snapshot);
 
-    if (this.process && !this.process.killed) {
+    if (this.process && !this.process.killed && isPidAlive(this.process.pid)) {
       console.log("CursorPets floating helper already running.");
       return;
+    }
+
+    this.process = undefined;
+    if (process.platform === "darwin") {
+      killAllFloatingPetSwiftProcesses();
     }
 
     console.log("CursorPets launching floating helper.", this.scriptPath);
@@ -662,6 +956,11 @@ class FloatingPetHost implements vscode.Disposable {
       stdio: "ignore"
     });
     floatingProcess.unref();
+    floatingProcess.on("exit", () => {
+      if (this.process === floatingProcess) {
+        this.process = undefined;
+      }
+    });
     this.process = floatingProcess;
   }
 
@@ -670,11 +969,94 @@ class FloatingPetHost implements vscode.Disposable {
     await fs.writeFile(this.statePath, JSON.stringify(snapshot), "utf8");
   }
 
+  async installLaunchAgent(snapshot: FloatingPetSnapshot): Promise<void> {
+    await this.update(snapshot);
+    const launchAgentsDir = path.join(process.env.HOME ?? "", "Library", "LaunchAgents");
+    const plistPath = path.join(launchAgentsDir, `${FloatingPetHost.launchAgentLabel}.plist`);
+    await fs.mkdir(launchAgentsDir, { recursive: true });
+    await fs.writeFile(plistPath, this.createLaunchAgentPlist(), "utf8");
+    await runCommand("/bin/launchctl", ["unload", plistPath]).catch(() => undefined);
+    await runCommand("/bin/launchctl", ["load", plistPath]);
+  }
+
+  async uninstallLaunchAgent(): Promise<void> {
+    const plistPath = path.join(process.env.HOME ?? "", "Library", "LaunchAgents", `${FloatingPetHost.launchAgentLabel}.plist`);
+    await runCommand("/bin/launchctl", ["unload", plistPath]).catch(() => undefined);
+    await fs.rm(plistPath, { force: true });
+  }
+
+  private createLaunchAgentPlist(): string {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${FloatingPetHost.launchAgentLabel}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/swift</string>
+    <string>${escapePlistString(this.scriptPath)}</string>
+    <string>${escapePlistString(this.statePath)}</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>/tmp/cursorpets-float.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/cursorpets-float.err</string>
+</dict>
+</plist>
+`;
+  }
+
   dispose(): void {
     if (this.process && !this.process.killed) {
       this.process.kill();
     }
   }
+}
+
+function runCommand(command: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: "ignore" });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`${command} exited with code ${code}`));
+      }
+    });
+  });
+}
+
+function isPidAlive(pid: number | undefined): boolean {
+  if (pid === undefined || pid <= 0) {
+    return false;
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function killAllFloatingPetSwiftProcesses(): void {
+  try {
+    execFileSync("pkill", ["-f", "CursorPetsFloat.swift"], { stdio: "ignore" });
+  } catch {
+    // pkill exits 1 when nothing matched
+  }
+}
+
+function escapePlistString(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 class CursorPetsViewProvider implements vscode.WebviewViewProvider {
@@ -810,6 +1192,185 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+function getTerminalShellCwd(terminal: vscode.Terminal): vscode.Uri | undefined {
+  const withShell = terminal as vscode.Terminal & {
+    shellIntegration?: { cwd?: vscode.Uri };
+  };
+  const fromShell = withShell.shellIntegration?.cwd;
+  if (fromShell) {
+    return fromShell;
+  }
+  const opts = terminal.creationOptions;
+  if (opts && typeof opts === "object" && "cwd" in opts) {
+    const raw = (opts as { cwd?: string | vscode.Uri }).cwd;
+    if (typeof raw === "string" && raw.length > 0) {
+      return vscode.Uri.file(raw);
+    }
+    if (raw instanceof vscode.Uri) {
+      return raw;
+    }
+  }
+  return undefined;
+}
+
+function resolveProjectTitleForTerminal(terminal: vscode.Terminal): string {
+  const cwd = getTerminalShellCwd(terminal);
+  if (cwd) {
+    const folder = vscode.workspace.getWorkspaceFolder(cwd);
+    if (folder) {
+      return folder.name;
+    }
+    const base = path.basename(cwd.fsPath);
+    if (base && base !== "." && base !== "/") {
+      return base;
+    }
+  }
+  if (vscode.workspace.name) {
+    return vscode.workspace.name;
+  }
+  const first = vscode.workspace.workspaceFolders?.[0];
+  if (first) {
+    return first.name;
+  }
+  return "Cursor";
+}
+
+type AgentTranscriptLine = {
+  role?: string;
+  message?: { content?: Array<{ type?: string; text?: string }> };
+};
+
+function agentTranscriptsRootForWorkspace(workspaceFsPath: string): string {
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  const norm = path.normalize(workspaceFsPath);
+  const stripped = norm.replace(/^[/\\]+/, "").replace(/[/\\:]/g, "-");
+  return path.join(home, ".cursor", "projects", stripped, "agent-transcripts");
+}
+
+async function collectAgentJsonlPaths(agentRoot: string): Promise<string[]> {
+  let dirEntries: Dirent[];
+  try {
+    dirEntries = await fs.readdir(agentRoot, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const paths: string[] = [];
+  for (const entry of dirEntries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const sub = path.join(agentRoot, String(entry.name));
+    let files: string[];
+    try {
+      files = await fs.readdir(sub);
+    } catch {
+      continue;
+    }
+    for (const f of files) {
+      if (f.endsWith(".jsonl")) {
+        paths.push(path.join(sub, f));
+      }
+    }
+  }
+  return paths;
+}
+
+async function readFileTailUtf8(filePath: string, maxTailBytes: number): Promise<string> {
+  const handle = await fs.open(filePath, "r");
+  try {
+    const stat = await handle.stat();
+    const size = stat.size;
+    if (size === 0) {
+      return "";
+    }
+    const readSize = Math.min(maxTailBytes, size);
+    const start = size - readSize;
+    const buffer = Buffer.alloc(readSize);
+    await handle.read(buffer, 0, readSize, start);
+    return buffer.toString("utf8");
+  } finally {
+    await handle.close();
+  }
+}
+
+function extractAssistantVisibleText(line: unknown): string | undefined {
+  if (!line || typeof line !== "object") {
+    return undefined;
+  }
+  const L = line as AgentTranscriptLine;
+  if (L.role !== "assistant" || !Array.isArray(L.message?.content)) {
+    return undefined;
+  }
+  const parts: string[] = [];
+  for (const block of L.message.content) {
+    if (block?.type === "text" && typeof block.text === "string") {
+      parts.push(block.text);
+    }
+  }
+  const joined = parts.join("\n").trim();
+  if (!joined) {
+    return undefined;
+  }
+  const cleaned = joined
+    .split("\n")
+    .map((ln) => ln.trim())
+    .filter((ln) => ln.length > 0 && ln !== "[REDACTED]")
+    .join("\n")
+    .trim();
+  return cleaned.length > 0 ? cleaned : undefined;
+}
+
+function lastAssistantTextFromJsonlTail(tailContent: string): string | undefined {
+  const lines = tailContent.trimEnd().split("\n");
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i]?.trim();
+    if (!line) {
+      continue;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const text = extractAssistantVisibleText(parsed);
+    if (text) {
+      return text;
+    }
+  }
+  return undefined;
+}
+
+function stripAnsi(value: string): string {
+  return value
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\u001b\][^\u0007]*(\u0007|\u001b\\)/g, "");
+}
+
+function trimTerminalOutput(value: string, maxChars: number): string {
+  const cleaned = value
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+
+  if (cleaned.length <= maxChars) {
+    return cleaned;
+  }
+
+  return `...${cleaned.slice(cleaned.length - maxChars + 3)}`;
+}
+
+function shortCommand(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= 44) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, 41)}...`;
+}
+
 async function fetchGitPetsDefinition(url: string): Promise<PetDefinition> {
   const html = await fetchText(url);
   const slug = new URL(url).pathname.split("/").filter(Boolean).at(-1);
@@ -849,6 +1410,13 @@ async function fetchGitPetsDefinition(url: string): Promise<PetDefinition> {
       entry: rawPet.spritesheetUrl,
       frames: 6,
       row: 0,
+      notifyRow: 3,
+      notifyFrames: 4,
+      walkRowDown: 0,
+      walkRowLeft: 2,
+      walkRowRight: 1,
+      walkRowUp: 4,
+      walkFrames: 4,
       scale: 0.84,
       frameWidth: 192,
       frameHeight: 208,

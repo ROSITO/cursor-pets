@@ -43,15 +43,18 @@ The repository now contains a local extension build:
 - Two placeholder pets for development.
 - Mood reactions for file saves, active editor changes, diagnostics, and inactivity.
 - Commands for showing, hiding, resetting, selecting a pet, and importing a manifest.
-- In-panel controls for pausing, resetting, importing a manifest, opening attribution links, switching pets, and opening a floating pet window on macOS.
+- In-panel controls for pausing, resetting, importing a manifest, opening attribution links, switching pets, and opening the **macOS floating** pet. **Open Cursor chat** via the command **`CursorPets: Open AI Chat`** in the palette (the native float window is display-only for the pet and message bubble in current releases).
 - GitPets URL import for pages such as `https://gitpets.com/pets/steve-80aac76c`.
 - Clipboard-based GitPets import when the Cursor input box does not submit cleanly.
-- Pet notification announcements for diagnostics, task/debug lifecycle events, saves, and CursorPets actions.
+- Pet notification announcements for diagnostics, task/debug lifecycle events (including **task process exit codes** when available), saves, and CursorPets actions.
 - In-panel notification history with clear action.
 - Floating pet auto-starts by default and has configurable background/message opacity.
 - CursorPets activates after Cursor startup so floating mode can open without manually opening the panel.
 - CursorPets uses eager activation so auto-float starts reliably after Cursor reload.
 - Floating pet stays alive across Cursor window reloads by default.
+- Floating pet frame is fully transparent by default; enable `cursorPets.float.showFrame` to show it again.
+- Optional macOS LaunchAgent can start the floating pet at login independently of Cursor.
+- Terminal shell output can be announced in the floating text bubble when shell integration is available.
 - Versioned pet manifest schema in `schemas/pet-manifest.schema.json`.
 
 Floating mode uses a small macOS native helper because Cursor Webviews are iframe contexts and cannot use browser Document Picture-in-Picture directly. The sidebar pet remains the cross-platform fallback.
@@ -72,6 +75,8 @@ Likely surfaces:
 - A local pet manifest format for GitPets-compatible metadata and assets.
 
 ## Local Development
+
+Product requirements and backlog (French): [BESOINS.md](./BESOINS.md).
 
 Install dependencies:
 
@@ -102,6 +107,16 @@ Useful commands:
 - `CursorPets: Announce Notification`
 - `CursorPets: Test Notification`
 - `CursorPets: Clear Notifications`
+- `CursorPets: Start Floating Pet`
+- `CursorPets: Install Login LaunchAgent`
+- `CursorPets: Uninstall Login LaunchAgent`
+- `CursorPets: Diagnose Startup`
+- `CursorPets: Announce Clipboard in Pet (e.g. AI reply)`
+- `CursorPets: Open AI Chat`
+
+Use **`cursorPets.tasks.reactToProcessExit`** to toggle exit-code–aware task announcements vs a single generic “Task finished” per task.
+
+Terminal output announcements require Cursor/VS Code shell integration. CursorPets reads output from shell executions started after the extension is active; it cannot read arbitrary historical terminal text.
 
 Note: CursorPets cannot intercept every native Cursor notification from the core product or other extensions because the VS Code/Cursor extension API exposes message creation APIs, not a global notification listener. The pet announces the editor signals and extension events that are available through supported APIs.
 
@@ -142,7 +157,7 @@ The full JSON schema lives at `schemas/pet-manifest.schema.json`.
 - Multiple pet personalities.
 - GitPets catalog sync if an official or stable source is available.
 - Unlockable animations based on coding streaks.
-- Test and build reactions.
+- Richer test and build reactions (first step: task process exit codes are announced when the task runs a real process).
 - Workspace-specific pet memory.
 - Optional MCP server so Cursor Agent can interact with the pet.
 - Cursor plugin packaging once the product shape is stable.
