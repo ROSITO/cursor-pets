@@ -2,7 +2,7 @@
   "name": "cursor-pets",
   "displayName": "CursorPets",
   "description": "Bring GitPets-style Codex pets into Cursor as a lightweight coding companion.",
-  "version": "0.14.0",
+  "version": "0.14.5",
   "publisher": "rosito",
   "license": "UNLICENSED",
   "repository": {

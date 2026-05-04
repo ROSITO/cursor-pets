@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
-import { watch as fsWatch } from "node:fs";
+import { watch as fsWatch, unwatchFile, watchFile, type Stats } from "node:fs";
 import type { Dirent, FSWatcher } from "node:fs";
 import * as path from "node:path";
 import { ChildProcess, execFileSync, spawn } from "node:child_process";
@@ -137,7 +137,7 @@ class CursorPetsController implements vscode.Disposable {
       () => this.catalog,
       (message) => this.handleWebviewAction(message)
     );
-    this.floatingHost = new FloatingPetHost(context);
+    this.floatingHost = new FloatingPetHost(context, () => void this.onFloatOpenChatSignal());
     this.statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 80);
     this.statusBar.command = "cursorPets.showPet";
     this.statusBar.tooltip = "Show CursorPets";
@@ -437,26 +437,100 @@ class CursorPetsController implements vscode.Disposable {
     this.announce("success", "Task finished", event.execution.task.name, "Tasks");
   }
 
-  /** Opens Cursor’s AI chat / agent UI when available (command IDs vary slightly by build). */
-  private async openCursorChat(): Promise<void> {
-    const candidates = [
-      "workbench.action.chat.open",
-      "workbench.action.openAgentsView",
-      "workbench.action.toggleAgents",
-      "workbench.action.chat.focus",
-      "workbench.action.chat.focusInput",
-      "workbench.action.toggleAuxiliaryBar"
-    ];
-    for (const id of candidates) {
+  /** Confirms in the UI that the float strip signal was received, then focuses chat. */
+  private onFloatOpenChatSignal(): void {
+    void vscode.window.setStatusBarMessage("$(comment-discussion) CursorPets — ouverture du chat…", 4500);
+    console.log("CursorPets: float strip signal → open chat");
+    void this.openCursorChatAfterFloatButton();
+  }
+
+  /** Float strip: the Swift window is another app — Cursor must become frontmost or workbench chat commands no-op. */
+  private async macOSActivateCursorApplication(): Promise<void> {
+    if (process.platform !== "darwin") {
+      return;
+    }
+    const appName = vscode.env.appName.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    const script = `tell application "${appName}" to activate`;
+    await Promise.race([
+      new Promise<void>((resolve) => {
+        const child = spawn("/usr/bin/osascript", ["-e", script], { stdio: "ignore" });
+        child.once("error", () => resolve());
+        child.once("close", () => resolve());
+      }),
+      new Promise<void>((resolve) => setTimeout(resolve, 800))
+    ]);
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /** Float strip: activate Cursor, then reveal Agent / auxiliary UI before the generic focus chain. */
+  private async openCursorChatAfterFloatButton(): Promise<void> {
+    await this.macOSActivateCursorApplication();
+    await this.delay(200);
+    const run = async (id: string): Promise<void> => {
       try {
         await vscode.commands.executeCommand(id);
-        return;
       } catch {
-        /* missing command or handler rejected */
+        /* missing in some builds */
+      }
+    };
+    await run("workbench.action.openAgentsView");
+    await this.delay(120);
+    await run("workbench.action.focusAuxiliaryBar");
+    await this.delay(120);
+    await run("aichat.view");
+    await this.delay(100);
+    await run("workbench.action.chat.focusInput");
+    await this.delay(80);
+    await run("workbench.action.chat.focusInput");
+    await this.openCursorChat();
+  }
+
+  /**
+   * Brings Cursor’s **ongoing** Agent / chat to the front when possible.
+   * Avoids leading with `workbench.action.chat.open`, which often starts a **new** thread.
+   */
+  private async openCursorChat(): Promise<void> {
+    const tryExec = async (id: string): Promise<boolean> => {
+      try {
+        await vscode.commands.executeCommand(id);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const tryFocusInput = (): Promise<boolean> => tryExec("workbench.action.chat.focusInput");
+
+    if (await tryFocusInput()) {
+      return;
+    }
+
+    const revealThenFocusInput = [
+      "aichat.view",
+      "workbench.action.openAgentsView",
+      "workbench.action.toggleAgentsFromKeyboard",
+      "workbench.action.focusAuxiliaryBar",
+      "workbench.action.chat.toggle",
+      "workbench.action.toggleAgents",
+      "workbench.action.toggleAuxiliaryBar"
+    ];
+
+    for (const id of revealThenFocusInput) {
+      if (await tryExec(id)) {
+        await tryFocusInput();
+        return;
       }
     }
+
+    if (await tryExec("workbench.action.chat.open")) {
+      return;
+    }
+
     void vscode.window.showWarningMessage(
-      "CursorPets could not open AI chat. Use Cursor’s Chat/Agent shortcut (often Cmd+L or Cmd+I) from the keyboard."
+      "CursorPets could not focus AI chat. Use Cursor’s Agent / Chat shortcut (often Cmd+L or Cmd+I) from the keyboard."
     );
   }
 
@@ -687,7 +761,8 @@ class CursorPetsController implements vscode.Disposable {
       `float.autoStart=${config.get("float.autoStart", true)}`,
       `platform=${process.platform}`,
       `helper=${this.floatingHost.helperPath}`,
-      `state=${this.floatingHost.snapshotPath}`
+      `state=${this.floatingHost.snapshotPath}`,
+      `openChatSignal=${this.floatingHost.openChatSignalPath}`
     ].join("\n");
     vscode.window.showInformationMessage(message, { modal: true });
     console.log(message);
@@ -922,11 +997,21 @@ class FloatingPetHost implements vscode.Disposable {
   private static readonly launchAgentLabel = "com.cursorpets.float";
   private process: ChildProcess | undefined;
   private readonly statePath: string;
+  private readonly signalPath: string;
   private readonly scriptPath: string;
+  private signalFileWatchActive = false;
+  private lastHandledFloatSignal = "";
+  private signalDebounce: NodeJS.Timeout | undefined;
+  private readonly onOpenChatFromFloat: () => void;
 
-  constructor(private readonly context: vscode.ExtensionContext) {
+  constructor(context: vscode.ExtensionContext, onOpenChatFromFloat: () => void) {
+    this.onOpenChatFromFloat = onOpenChatFromFloat;
     this.statePath = path.join(context.globalStorageUri.fsPath, "floating-pet-state.json");
+    this.signalPath = path.join(path.dirname(this.statePath), "floating-pet-open-chat.signal");
     this.scriptPath = context.asAbsolutePath(path.join("floating-host", "macos", "CursorPetsFloat.swift"));
+    if (process.platform === "darwin") {
+      void this.ensureSignalFileAndWatcher();
+    }
   }
 
   get helperPath(): string {
@@ -937,8 +1022,54 @@ class FloatingPetHost implements vscode.Disposable {
     return this.statePath;
   }
 
+  get openChatSignalPath(): string {
+    return this.signalPath;
+  }
+
+  private async ensureSignalFileAndWatcher(): Promise<void> {
+    await fs.mkdir(path.dirname(this.signalPath), { recursive: true });
+    await fs.writeFile(this.signalPath, "0\n", "utf8").catch(() => undefined);
+    this.ensureSignalWatcher();
+  }
+
+  private ensureSignalWatcher(): void {
+    if (process.platform !== "darwin" || this.signalFileWatchActive) {
+      return;
+    }
+    this.signalFileWatchActive = true;
+    // `fs.watch` often misses updates when another process replaces the file (Swift atomic write).
+    // `watchFile` stat-polls and reliably sees mtime/size changes on macOS.
+    watchFile(this.signalPath, { interval: 200 }, (curr: Stats, prev: Stats) => {
+      if (curr.mtimeMs === prev.mtimeMs && curr.size === prev.size) {
+        return;
+      }
+      void (async () => {
+        try {
+          const t = (await fs.readFile(this.signalPath, "utf8")).trim();
+          if (t === "" || t === "0") {
+            return;
+          }
+          if (t === this.lastHandledFloatSignal) {
+            return;
+          }
+          this.lastHandledFloatSignal = t;
+          if (this.signalDebounce) {
+            clearTimeout(this.signalDebounce);
+          }
+          this.signalDebounce = setTimeout(() => {
+            console.log("CursorPets: float open-chat signal file changed");
+            this.onOpenChatFromFloat();
+          }, 80);
+        } catch {
+          /* missing file or race */
+        }
+      })();
+    });
+  }
+
   async show(snapshot: FloatingPetSnapshot): Promise<void> {
     await this.update(snapshot);
+    await this.ensureSignalFileAndWatcher();
 
     if (this.process && !this.process.killed && isPidAlive(this.process.pid)) {
       console.log("CursorPets floating helper already running.");
@@ -951,7 +1082,7 @@ class FloatingPetHost implements vscode.Disposable {
     }
 
     console.log("CursorPets launching floating helper.", this.scriptPath);
-    const floatingProcess = spawn("/usr/bin/swift", [this.scriptPath, this.statePath], {
+    const floatingProcess = spawn("/usr/bin/swift", [this.scriptPath, this.signalPath, this.statePath], {
       detached: true,
       stdio: "ignore"
     });
@@ -971,6 +1102,7 @@ class FloatingPetHost implements vscode.Disposable {
 
   async installLaunchAgent(snapshot: FloatingPetSnapshot): Promise<void> {
     await this.update(snapshot);
+    await this.ensureSignalFileAndWatcher();
     const launchAgentsDir = path.join(process.env.HOME ?? "", "Library", "LaunchAgents");
     const plistPath = path.join(launchAgentsDir, `${FloatingPetHost.launchAgentLabel}.plist`);
     await fs.mkdir(launchAgentsDir, { recursive: true });
@@ -996,6 +1128,7 @@ class FloatingPetHost implements vscode.Disposable {
   <array>
     <string>/usr/bin/swift</string>
     <string>${escapePlistString(this.scriptPath)}</string>
+    <string>${escapePlistString(this.signalPath)}</string>
     <string>${escapePlistString(this.statePath)}</string>
   </array>
   <key>RunAtLoad</key>
@@ -1012,6 +1145,13 @@ class FloatingPetHost implements vscode.Disposable {
   }
 
   dispose(): void {
+    if (this.signalDebounce) {
+      clearTimeout(this.signalDebounce);
+    }
+    if (this.signalFileWatchActive) {
+      unwatchFile(this.signalPath);
+      this.signalFileWatchActive = false;
+    }
     if (this.process && !this.process.killed) {
       this.process.kill();
     }

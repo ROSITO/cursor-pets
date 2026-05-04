@@ -43,7 +43,7 @@ The repository now contains a local extension build:
 - Two placeholder pets for development.
 - Mood reactions for file saves, active editor changes, diagnostics, and inactivity.
 - Commands for showing, hiding, resetting, selecting a pet, and importing a manifest.
-- In-panel controls for pausing, resetting, importing a manifest, opening attribution links, switching pets, and opening the **macOS floating** pet. **Open Cursor chat** via the command **`CursorPets: Open AI Chat`** in the palette (the native float window is display-only for the pet and message bubble in current releases).
+- In-panel controls for pausing, resetting, importing a manifest, opening attribution links, switching pets, and opening the **macOS floating** pet. **Return to the current Agent / chat** (focus ongoing session when possible) via **`CursorPets: Open AI Chat`** in the palette, or use the **« Ouvrir le chat Cursor »** button at the bottom of the native float (real `NSButton`; Cursor must be running). From the float, the extension briefly **activates the Cursor app** via AppleScript so the Agent UI can take keyboard focus; macOS may ask once for Automation permission. A short **status bar** message confirms the signal was received.
 - GitPets URL import for pages such as `https://gitpets.com/pets/steve-80aac76c`.
 - Clipboard-based GitPets import when the Cursor input box does not submit cleanly.
 - Pet notification announcements for diagnostics, task/debug lifecycle events (including **task process exit codes** when available), saves, and CursorPets actions.
@@ -121,6 +121,16 @@ Terminal output announcements require Cursor/VS Code shell integration. CursorPe
 Note: CursorPets cannot intercept every native Cursor notification from the core product or other extensions because the VS Code/Cursor extension API exposes message creation APIs, not a global notification listener. The pet announces the editor signals and extension events that are available through supported APIs.
 
 The CursorPets panel also includes direct controls for the common actions, so the Command Palette is no longer required for everyday use.
+
+## macOS floating window and Agent chat
+
+The native float is a **Swift** helper (`floating-host/macos/CursorPetsFloat.swift`), not a webview: it reads `floating-pet-state.json` and renders spritesheets (e.g. GitPets Steve) from `pet.asset.entry`.
+
+- **« Ouvrir le chat Cursor »** is a real **`NSButton`**. On click it overwrites `floating-pet-open-chat.signal` next to the state file (same global storage folder as the JSON).
+- The extension uses **`fs.watchFile`** (not `fs.watch`) so macOS reliably sees each overwrite from the float process.
+- It then shows a short **status bar** message, runs **AppleScript** to **`activate`** the Cursor app (`vscode.env.appName`), and runs a sequence of **`workbench` / `aichat` / `chat.focusInput`** commands so the **ongoing** Agent / chat surface can take focus—same intent as **`CursorPets: Open AI Chat`** from the palette.
+- **Login LaunchAgent** must pass **four** arguments after `/usr/bin/swift`: **script path**, **signal path**, **state JSON path** (state is always last). Re-run **Install Login LaunchAgent** after upgrades if your plist is older.
+- If macOS asks for **Automation** (Cursor controlling Cursor via Apple Events), allow it once; otherwise activation may be skipped and focus can still fail.
 
 ## Pet Manifest
 

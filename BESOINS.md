@@ -21,7 +21,7 @@ Document de référence pour les **exigences fonctionnelles**, **intégrations**
 | F4 | Réactions aux **événements éditeur** : sauvegarde, changement d’éditeur actif, diagnostics, inactivité | Couvert |
 | F5 | **Réglages** : activer/désactiver, intensité d’animation, pet sélectionné, manifeste optionnel | Couvert |
 | F6 | **Commandes** palette : afficher/masquer, reset, import, notifications, flottant, etc. | Couvert |
-| F7 | **Panneau** : pause, reset, float, import, source, notifications ; **chat IA** via la **commande palette** (`cursorPets.openChat`) | Couvert |
+| F7 | **Panneau** : pause, reset, float, import, source, notifications ; **chat IA** : palette (`cursorPets.openChat`) + bouton **fenêtre flottante** macOS (fichier signal + activation Cursor via **AppleScript** avant commandes workbench) | Couvert |
 | F8 | **Import** manifeste local + URL GitPets (+ import presse-papiers si besoin) | Couvert |
 | F9 | **Annonces** (diagnostics, tâches, debug, actions extension) + historique + effet visuel flottant (notify) | Couvert |
 | F10 | **Fenêtre flottante** macOS (hors iframe webview) + opacités / cadre configurable | Couvert (macOS) |
@@ -44,7 +44,7 @@ Document de référence pour les **exigences fonctionnelles**, **intégrations**
 ## 4. Besoins plateforme & compatibilité
 
 - **Cursor / VS Code** : extension API `^1.92.0` ; comportements **spécifiques Cursor** (transcripts, commandes chat) peuvent changer entre versions → **tests manuels** après upgrade Cursor.
-- **Flottant** : dépend d’un **binaire/helper macOS** ; besoin futur explicite si extension **Windows / Linux** : autre stratégie (webview only, PiP web si un jour dispo, etc.).
+- **Flottant** : dépend d’un **helper Swift macOS** ; ouverture chat depuis le float = **fichier signal** surveillé par l’extension + **`osascript`** pour remettre Cursor au premier plan (permission **Automatisation** possible) ; besoin futur explicite si extension **Windows / Linux** : autre stratégie (webview only, etc.).
 - **Notifications natives Cursor** : pas d’API globale d’écoute ; le plugin ne peut annoncer que ce qui passe par les **APIs exposées**.
 
 ---
@@ -70,14 +70,14 @@ Aligné sur la vision du `README.md` et l’état actuel du code :
 6. **MCP ou hooks** pour que l’Agent Cursor dialogue avec le pet de façon structurée.
 7. **Empaquetage « plugin Cursor »** si le produit se stabilise et que le canal le permet.
 8. **Parité flottant** hors macOS si la demande utilisateur est là.
-9. **README / BESOINS** : liste des commandes et liens tenus à jour (chat : palette ; float = pet + bulle uniquement tant que pas de nouveau pont signal).
+9. **README / BESOINS** : liste des commandes et liens tenus à jour (chat : palette + float : signal + activation + workbench ; LaunchAgent à 4 arguments).
 
 ---
 
 ## 7. Critères de « done » pour une release
 
 - `npm run compile` sans erreur.
-- Smoke test dans **Cursor** : panneau, float (si macOS), import manifeste, annonce test, ouverture chat depuis la palette.
+- Smoke test dans **Cursor** : panneau, float (si macOS), import manifeste, annonce test, ouverture chat depuis la palette et depuis le bouton float (vérifier message barre d’état + focus Agent ; **Automatisation** macOS si demandée).
 - Schéma JSON et `package.json` (commands, `activationEvents`, settings) **cohérents** avec le code.
 
 ---

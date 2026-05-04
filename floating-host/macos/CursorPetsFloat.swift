@@ -44,6 +44,35 @@ struct PetAsset: Decodable {
 final class PetView: NSView {
   private var cachedImageUrl: String?
   private var cachedImage: NSImage?
+  /// Path to a small signal file the VS Code extension watches; a click on the chat strip overwrites it.
+  var signalFilePath: String = "" {
+    didSet {
+      let ok = signalFilePath.isEmpty == false
+      chatButton.isHidden = !ok
+      chatButton.isEnabled = ok
+    }
+  }
+
+  private let chatButton: NSButton = {
+    let b = NSButton()
+    b.title = "Ouvrir le chat Cursor"
+    b.bezelStyle = .rounded
+    b.isBordered = false
+    b.wantsLayer = true
+    b.layer?.cornerRadius = 10
+    b.layer?.backgroundColor = NSColor(calibratedWhite: 0.14, alpha: 0.92).cgColor
+    b.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+    b.contentTintColor = NSColor(calibratedWhite: 1, alpha: 0.92)
+    b.setButtonType(.momentaryPushIn)
+    b.focusRingType = .none
+    b.toolTip = "Envoie une demande à CursorPets dans l’éditeur pour ouvrir le chat (Cursor doit être ouvert)."
+    return b
+  }()
+
+  private let chatStripHeight: CGFloat = 36
+  private let edgePad: CGFloat = 10
+  private let layoutGap: CGFloat = 8
+  private let messageBubbleHeight: CGFloat = 70
 
   var snapshot: Snapshot? {
     didSet {
@@ -54,10 +83,52 @@ final class PetView: NSView {
   override init(frame frameRect: NSRect) {
     super.init(frame: frameRect)
     wantsLayer = true
+    chatButton.target = self
+    chatButton.action = #selector(chatButtonPushed(_:))
+    chatButton.isHidden = true
+    chatButton.isEnabled = false
+    addSubview(chatButton)
   }
 
   required init?(coder: NSCoder) {
     fatalError("init(coder:) has not been implemented")
+  }
+
+  override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+    true
+  }
+
+  override func layout() {
+    super.layout()
+    chatButton.frame = stripFrame(in: bounds)
+  }
+
+  @objc private func chatButtonPushed(_ sender: Any?) {
+    guard signalFilePath.isEmpty == false else {
+      return
+    }
+    let stamp = "\(Date().timeIntervalSince1970)-\(UUID().uuidString.prefix(8))\n"
+    if let data = stamp.data(using: .utf8) {
+      FileManager.default.createFile(atPath: signalFilePath, contents: data, attributes: nil)
+    }
+    if #available(macOS 10.11, *) {
+      NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .default)
+    }
+  }
+
+  private func stripFrame(in rect: NSRect) -> CGRect {
+    CGRect(x: edgePad, y: edgePad, width: rect.width - edgePad * 2, height: chatStripHeight)
+  }
+
+  private func messageFrame(in rect: NSRect) -> CGRect {
+    let y = edgePad + chatStripHeight + layoutGap
+    return CGRect(x: 18, y: y, width: rect.width - 36, height: messageBubbleHeight)
+  }
+
+  private func petFrame(in rect: NSRect) -> CGRect {
+    let m = messageFrame(in: rect)
+    let bottom = m.maxY + layoutGap
+    return CGRect(x: rect.minX + 18, y: bottom, width: rect.width - 36, height: rect.maxY - bottom - 14)
   }
 
   override func draw(_ dirtyRect: NSRect) {
@@ -75,13 +146,17 @@ final class PetView: NSView {
 
     context.clear(bounds)
     drawBackground(in: context, rect: bounds, opacity: CGFloat(snapshot?.options?.backgroundOpacity ?? 0.32))
-    let petArea = CGRect(x: bounds.minX + 18, y: bounds.minY + 102, width: bounds.width - 36, height: bounds.height - 118)
+    let petArea = petFrame(in: bounds)
     if snapshot?.pet?.asset.type == "spritesheet", let image = loadImage(entry) {
-      drawSpritesheetPet(image, in: context, rect: petArea, mood: mood, enabled: enabled, asset: snapshot?.pet?.asset)
+      drawSpritesheetPet(image, in: context, rect: petArea.insetBy(dx: 4, dy: 4), mood: mood, enabled: enabled, asset: snapshot?.pet?.asset)
     } else {
       drawPet(in: context, rect: petArea.insetBy(dx: 8, dy: 8), entry: entry, mood: mood, enabled: enabled)
     }
-    drawMessage(message, in: bounds, opacity: CGFloat(snapshot?.options?.messageOpacity ?? 0.42))
+    drawMessage(message, in: messageFrame(in: bounds), opacity: CGFloat(snapshot?.options?.messageOpacity ?? 0.42))
+  }
+
+  override func mouseDown(with event: NSEvent) {
+    window?.performDrag(with: event)
   }
 
   private func drawBackground(in context: CGContext, rect: NSRect, opacity: CGFloat) {
@@ -172,8 +247,7 @@ final class PetView: NSView {
     return image
   }
 
-  private func drawMessage(_ message: String, in rect: NSRect, opacity: CGFloat) {
-    let messageRect = CGRect(x: 18, y: 12, width: rect.width - 36, height: 70)
+  private func drawMessage(_ message: String, in messageRect: NSRect, opacity: CGFloat) {
     let bubblePath = CGPath(roundedRect: messageRect.insetBy(dx: -10, dy: -8), cornerWidth: 14, cornerHeight: 14, transform: nil)
     guard let context = NSGraphicsContext.current?.cgContext else {
       return
@@ -218,15 +292,18 @@ final class PetView: NSView {
 
 final class FloatingPetApp: NSObject, NSApplicationDelegate {
   private let statePath: String
+  private let signalPath: String
   private let petView = PetView(frame: NSRect(x: 0, y: 0, width: 260, height: 340))
   private var window: NSPanel?
   private var timer: Timer?
 
-  init(statePath: String) {
+  init(statePath: String, signalPath: String) {
     self.statePath = statePath
+    self.signalPath = signalPath
   }
 
   func applicationDidFinishLaunching(_ notification: Notification) {
+    petView.signalFilePath = signalPath
     let panel = NSPanel(
       contentRect: NSRect(x: 1200, y: 570, width: 260, height: 340),
       styleMask: [.borderless, .nonactivatingPanel],
@@ -260,10 +337,25 @@ final class FloatingPetApp: NSObject, NSApplicationDelegate {
   }
 }
 
-/// Spawned as `swift CursorPetsFloat.swift <floating-pet-state.json>` — state JSON is always the last CLI argument.
-let statePath = CommandLine.arguments.dropFirst().last ?? ""
+/// Spawned as `swift CursorPetsFloat.swift [<signal-path>] <state-json>` — **state JSON is always the last** argument.
+private func parseFloatCli() -> (state: String, signal: String) {
+  let args = CommandLine.arguments
+  guard args.count >= 2 else {
+    return ("", "")
+  }
+  let state = args[args.count - 1]
+  if args.count >= 3 {
+    let signal = args[args.count - 2]
+    return (state, signal)
+  }
+  let dir = (state as NSString).deletingLastPathComponent
+  let signal = (dir as NSString).appendingPathComponent("floating-pet-open-chat.signal")
+  return (state, signal)
+}
+
+let (statePath, signalPath) = parseFloatCli()
 let app = NSApplication.shared
-let delegate = FloatingPetApp(statePath: statePath)
+let delegate = FloatingPetApp(statePath: statePath, signalPath: signalPath)
 app.setActivationPolicy(.accessory)
 app.delegate = delegate
 app.run()

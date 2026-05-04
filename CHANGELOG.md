@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.14.5
+
+- **Float → chat focus**: after the signal file is detected, CursorPets now runs **`osascript`** (`tell application "<appName>" to activate` using `vscode.env.appName`) so **Cursor becomes the frontmost app** before `openAgentsView` / `focusAuxiliaryBar` / `aichat.view` / `chat.focusInput`. Clicking the float leaves Cursor in the background, so workbench commands were previously a no-op for focus. macOS may prompt once for **Automation** permission to let Cursor control itself via Apple Events.
+- **Documentation**: `README.md` and `BESOINS.md` describe the full **float → signal file → extension → activate Cursor → focus Agent/chat** path, LaunchAgent **four** `ProgramArguments`, and the optional **Automation** prompt.
+
+## 0.14.4
+
+- **Float “Ouvrir le chat”**: real **`NSButton`** (native hit-testing + hover press) instead of a drawn strip + manual `mouseDown`; small **haptic** on press; **`window.performDrag`** on the rest of the panel so dragging still works.
+- **Feedback**: when the extension sees the signal file change, it shows a **status bar message** (“CursorPets — ouverture du chat…”) and logs to the **Extension Host** console so you can tell “click worked” even if Cursor’s focus commands behave oddly.
+
+## 0.14.3
+
+- **Float → chat**: replaced `fs.watch` on the signal file with **`fs.watchFile`** (stat polling), because **`fs.watch` often misses Swift’s atomic file replace** on macOS, so the extension never ran `openCursorChat`.
+- **Float strip click**: write the signal with **`FileManager.createFile`** (reliable replace of file contents for polling).
+- **Float strip handler**: call **`workbench.action.openAgentsView`** once before the usual focus sequence so **`chat.focusInput`** has a surface to attach to.
+
+## 0.14.2
+
+- **Floating window (macOS)**: bottom strip **« Ouvrir le chat Cursor »** — click writes `floating-pet-open-chat.signal` next to the float state JSON; the extension watches it and runs **`openCursorChat`** (same logic as the palette: focus ongoing Agent / chat when possible). Swift is spawned as `swift …/CursorPetsFloat.swift <signal-path> <state-json>` (state remains **last**); LaunchAgent plist includes both paths. Re-install the Login LaunchAgent if you still have an older two-argument plist.
+
+## 0.14.1
+
+- **`CursorPets: Open AI Chat`** (`cursorPets.openChat`): prefers **focusing the current chat / Agent session** (`workbench.action.chat.focusInput`, then `aichat.view`, Agents view, auxiliary bar, toggles). **`workbench.action.chat.open`** is only used as a **last resort**, because it often starts a **new** conversation when tried first.
+
 ## 0.14.0
 
 - **Floating pet (macOS) reset to the last known-good Git baseline** (`4638596`, pre–spritesheet-cache experiments): restored **`CursorPetsFloat.swift`** to that simpler implementation (`NSImage(data:)` + `Data(contentsOf:)` for `pet.asset.entry`, no ImageIO-only paths, no extra JSON fields).
