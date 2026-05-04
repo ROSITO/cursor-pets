@@ -1,0 +1,471 @@
+:root {
+  color-scheme: light dark;
+  --bg: var(--vscode-sideBar-background);
+  --fg: var(--vscode-sideBar-foreground);
+  --muted: var(--vscode-descriptionForeground);
+  --border: var(--vscode-sideBarSectionHeader-border);
+  --accent: var(--vscode-button-background);
+  --accent-fg: var(--vscode-button-foreground);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+.app {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: minmax(180px, 44vh) auto;
+}
+
+.pet-stage {
+  display: grid;
+  place-items: center;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.pet {
+  width: min(58vw, 176px);
+  aspect-ratio: 1;
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.pet-shadow {
+  position: absolute;
+  width: 58%;
+  height: 10%;
+  bottom: 8%;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 22%, transparent);
+  filter: blur(4px);
+}
+
+.pet-body {
+  position: relative;
+  width: 72%;
+  aspect-ratio: 0.95;
+  border-radius: 44% 44% 38% 38%;
+  display: grid;
+  place-items: center;
+  box-shadow: inset -10px -12px 0 color-mix(in srgb, #000 12%, transparent);
+}
+
+.nukey-preview .pet-body,
+.nukey-preview .pet-ear {
+  background: #f6c84c;
+}
+
+.cloudlet-preview .pet-body,
+.cloudlet-preview .pet-ear {
+  background: #8dd7d7;
+}
+
+.spritesheet-pet {
+  width: min(64vw, 220px);
+  aspect-ratio: var(--frame-ratio, 192 / 208);
+}
+
+.spritesheet-pet .pet-body {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  overflow: hidden;
+  position: relative;
+  background: transparent;
+  box-shadow: none;
+  image-rendering: auto;
+  transform: scale(var(--pet-scale, 1));
+}
+
+.spritesheet-pet .pet-body::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: calc(var(--sheet-cols, 8) * 100%);
+  height: calc(var(--sheet-rows, 9) * 100%);
+  background-image: var(--spritesheet-url);
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  image-rendering: pixelated;
+  transform: translate(0, var(--sprite-y, 0%));
+  animation: sprite-walk 1.3s steps(var(--pet-frames, 6)) infinite;
+}
+
+.spritesheet-pet .pet-ear,
+.spritesheet-pet .pet-face {
+  display: none;
+}
+
+.spritesheet-pet.still .pet-body::before {
+  animation: none;
+}
+
+.pet-ear {
+  position: absolute;
+  width: 28%;
+  height: 28%;
+  top: -5%;
+  border-radius: 50% 50% 16% 50%;
+}
+
+.pet-ear-left {
+  left: 10%;
+  transform: rotate(-26deg);
+}
+
+.pet-ear-right {
+  right: 10%;
+  transform: rotate(116deg);
+}
+
+.pet-face {
+  position: relative;
+  width: 68%;
+  height: 42%;
+}
+
+.eye {
+  position: absolute;
+  top: 22%;
+  width: 13%;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: #111827;
+}
+
+.eye-left {
+  left: 19%;
+}
+
+.eye-right {
+  right: 19%;
+}
+
+.mouth {
+  position: absolute;
+  left: 50%;
+  bottom: 12%;
+  width: 26%;
+  height: 18%;
+  border-bottom: 4px solid #111827;
+  border-radius: 0 0 999px 999px;
+  transform: translateX(-50%);
+}
+
+.pet-info {
+  padding: 16px;
+}
+
+.toolbar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 14px 0 4px;
+}
+
+button {
+  min-height: 30px;
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 4px;
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+.eyebrow {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+h1 {
+  margin: 6px 0 8px;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+dl {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+dt {
+  color: var(--muted);
+}
+
+dd {
+  margin: 0;
+  text-align: right;
+}
+
+.attribution {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.link-button {
+  width: 100%;
+  margin-top: 10px;
+  background: transparent;
+  color: var(--vscode-textLink-foreground);
+}
+
+.picker {
+  margin-top: 18px;
+}
+
+.notifications {
+  margin-top: 18px;
+}
+
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.mini-button {
+  min-height: 24px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+h2 {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.notification-list {
+  display: grid;
+  gap: 8px;
+}
+
+.notification-empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.notification-item {
+  border-left: 3px solid var(--muted);
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  border-radius: 4px;
+  padding: 8px 10px;
+}
+
+.notification-item[data-level="success"] {
+  border-left-color: #4ade80;
+}
+
+.notification-item[data-level="warning"] {
+  border-left-color: #facc15;
+}
+
+.notification-item[data-level="error"] {
+  border-left-color: #fb7185;
+}
+
+.notification-topline {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.notification-title {
+  display: block;
+  margin-top: 4px;
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.notification-body {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pet-list {
+  display: grid;
+  gap: 6px;
+}
+
+.pet-option {
+  width: 100%;
+  min-height: 44px;
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.pet-option[data-selected="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.pet-option-name,
+.pet-option-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pet-option-name {
+  color: var(--fg);
+  font-weight: 650;
+}
+
+.pet-option-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.disabled {
+  opacity: 0.55;
+}
+
+.subtle.idle .pet-body,
+.playful.idle .pet-body {
+  animation: breathe 2.8s ease-in-out infinite;
+}
+
+.subtle.focused .pet-body,
+.playful.focused .pet-body {
+  animation: focus 1.8s ease-in-out infinite;
+}
+
+.subtle.happy .pet-body,
+.playful.happy .pet-body {
+  animation: hop 0.9s ease-in-out infinite;
+}
+
+.subtle.waiting .pet-body,
+.playful.waiting .pet-body {
+  animation: drowse 2.4s ease-in-out infinite;
+}
+
+.subtle.concerned .pet-body,
+.playful.concerned .pet-body {
+  animation: concerned 0.95s ease-in-out infinite;
+}
+
+.still .pet-body {
+  animation: none;
+}
+
+.concerned .mouth {
+  border-bottom: 0;
+  border-top: 4px solid #111827;
+  border-radius: 999px 999px 0 0;
+  bottom: 0;
+}
+
+.waiting .eye {
+  height: 4px;
+  margin-top: 5px;
+}
+
+@keyframes breathe {
+  0%, 100% {
+    transform: translateY(0) scaleY(1);
+  }
+  50% {
+    transform: translateY(2px) scaleY(0.98);
+  }
+}
+
+@keyframes focus {
+  0%, 100% {
+    transform: rotate(-1deg);
+  }
+  50% {
+    transform: rotate(1deg);
+  }
+}
+
+@keyframes hop {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-9px);
+  }
+}
+
+@keyframes drowse {
+  0%, 100% {
+    transform: translateY(0) rotate(-2deg);
+  }
+  50% {
+    transform: translateY(4px) rotate(2deg);
+  }
+}
+
+@keyframes concerned {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-3px);
+  }
+  75% {
+    transform: translateX(3px);
+  }
+}
+
+@keyframes sprite-walk {
+  from {
+    transform: translate(0, var(--sprite-y, 0%));
+  }
+  to {
+    transform: translate(var(--sprite-end-x, -75%), var(--sprite-y, 0%));
+  }
+}

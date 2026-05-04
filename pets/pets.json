@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "source": "local-preview",
+  "pets": [
+    {
+      "id": "nukey-preview",
+      "name": "Nukey Preview",
+      "author": "CursorPets",
+      "description": "A local placeholder inspired by the GitPets catalog shape. Not an official GitPets asset.",
+      "sourceUrl": "https://gitpets.com/",
+      "asset": {
+        "type": "css",
+        "entry": "nukey-preview"
+      },
+      "states": ["idle", "focused", "happy", "waiting", "concerned"]
+    },
+    {
+      "id": "cloudlet-preview",
+      "name": "Cloudlet Preview",
+      "author": "CursorPets",
+      "description": "A soft local placeholder for testing the pet picker. Not an official GitPets asset.",
+      "sourceUrl": "https://gitpets.com/",
+      "asset": {
+        "type": "css",
+        "entry": "cloudlet-preview"
+      },
+      "states": ["idle", "focused", "happy", "waiting", "concerned"]
+    }
+  ]
+}

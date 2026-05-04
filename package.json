@@ -1,0 +1,134 @@
+{
+  "name": "cursor-pets",
+  "displayName": "CursorPets",
+  "description": "Bring GitPets-style Codex pets into Cursor as a lightweight coding companion.",
+  "version": "0.6.2",
+  "publisher": "rosito",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ROSITO/cursor-pets.git"
+  },
+  "engines": {
+    "vscode": "^1.92.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:cursorPets.petView",
+    "onCommand:cursorPets.showPet",
+    "onCommand:cursorPets.hidePet",
+    "onCommand:cursorPets.resetPet",
+    "onCommand:cursorPets.selectPet",
+    "onCommand:cursorPets.importPetManifest",
+    "onCommand:cursorPets.importGitPetsUrl",
+    "onCommand:cursorPets.announceNotification",
+    "onCommand:cursorPets.testNotification",
+    "onCommand:cursorPets.clearNotifications"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "cursorPets.showPet",
+        "title": "CursorPets: Show Pet"
+      },
+      {
+        "command": "cursorPets.hidePet",
+        "title": "CursorPets: Hide Pet"
+      },
+      {
+        "command": "cursorPets.resetPet",
+        "title": "CursorPets: Reset Pet"
+      },
+      {
+        "command": "cursorPets.selectPet",
+        "title": "CursorPets: Select Pet"
+      },
+      {
+        "command": "cursorPets.importPetManifest",
+        "title": "CursorPets: Import Pet Manifest"
+      },
+      {
+        "command": "cursorPets.importGitPetsUrl",
+        "title": "CursorPets: Import GitPets URL"
+      },
+      {
+        "command": "cursorPets.announceNotification",
+        "title": "CursorPets: Announce Notification"
+      },
+      {
+        "command": "cursorPets.testNotification",
+        "title": "CursorPets: Test Notification"
+      },
+      {
+        "command": "cursorPets.clearNotifications",
+        "title": "CursorPets: Clear Notifications"
+      }
+    ],
+    "configuration": {
+      "title": "CursorPets",
+      "properties": {
+        "cursorPets.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable CursorPets."
+        },
+        "cursorPets.animationLevel": {
+          "type": "string",
+          "enum": [
+            "still",
+            "subtle",
+            "playful"
+          ],
+          "default": "subtle",
+          "description": "Controls how expressive pet animations should be."
+        },
+        "cursorPets.pet": {
+          "type": "string",
+          "default": "nukey-preview",
+          "description": "The selected pet id."
+        },
+        "cursorPets.petCatalogSource": {
+          "type": "string",
+          "default": "",
+          "description": "Optional local path to a GitPets-compatible pet manifest."
+        },
+        "cursorPets.reactToDiagnostics": {
+          "type": "boolean",
+          "default": true,
+          "description": "Let the pet react when diagnostics change."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "cursorPets",
+          "title": "CursorPets",
+          "icon": "resources/cursorpets.svg"
+        }
+      ]
+    },
+    "views": {
+      "cursorPets": [
+        {
+          "type": "webview",
+          "id": "cursorPets.petView",
+          "name": "Pet"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.92.0",
+    "typescript": "^5.5.0"
+  }
+}

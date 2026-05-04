@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ROSITO/cursor-pets/schemas/pet-manifest.schema.json",
+  "title": "CursorPets Pet Manifest",
+  "type": "object",
+  "required": ["version", "source", "pets"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "author", "description", "sourceUrl", "asset", "states"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-_.]*$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "author": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sourceUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "asset": {
+            "type": "object",
+            "required": ["type", "entry"],
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["css", "image", "spritesheet"]
+              },
+              "entry": {
+                "type": "string",
+                "minLength": 1
+              },
+              "frames": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "row": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "scale": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "frameWidth": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "frameHeight": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "sheetWidth": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "sheetHeight": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "states": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "enum": ["idle", "focused", "happy", "waiting", "concerned"]
+            }
+          }
+        }
+      }
+    }
+  }
+}
