@@ -48,6 +48,10 @@ The repository now contains a local extension build:
 - Clipboard-based GitPets import when the Cursor input box does not submit cleanly.
 - Pet notification announcements for diagnostics, task/debug lifecycle events, saves, and CursorPets actions.
 - In-panel notification history with clear action.
+- Floating pet auto-starts by default and has configurable background/message opacity.
+- CursorPets activates after Cursor startup so floating mode can open without manually opening the panel.
+- CursorPets uses eager activation so auto-float starts reliably after Cursor reload.
+- Floating pet stays alive across Cursor window reloads by default.
 - Versioned pet manifest schema in `schemas/pet-manifest.schema.json`.
 
 Floating mode uses a small macOS native helper because Cursor Webviews are iframe contexts and cannot use browser Document Picture-in-Picture directly. The sidebar pet remains the cross-platform fallback.

@@ -77,12 +77,17 @@ interface WebviewAction {
 interface FloatingPetSnapshot {
   state: PetState;
   pet: PetDefinition | undefined;
+  options: {
+    backgroundOpacity: number;
+    messageOpacity: number;
+  };
 }
 
 const VIEW_ID = "cursorPets.petView";
 const INACTIVITY_MS = 90_000;
 
 export function activate(context: vscode.ExtensionContext): void {
+  console.log("CursorPets activated.");
   const controller = new CursorPetsController(context);
   context.subscriptions.push(controller);
 }
@@ -95,6 +100,7 @@ class CursorPetsController implements vscode.Disposable {
   private readonly statusBar: vscode.StatusBarItem;
   private readonly floatingHost: FloatingPetHost;
   private inactivityTimer: NodeJS.Timeout | undefined;
+  private startupTimers: NodeJS.Timeout[] = [];
   private catalog: PetCatalog = { version: 1, source: "empty", pets: [] };
   private state: PetState;
   private lastDiagnostics = { errors: 0, warnings: 0 };
@@ -128,6 +134,8 @@ class CursorPetsController implements vscode.Disposable {
         this.announce("info", "Cursor notification", "This is what a pet announcement looks like.", "CursorPets")
       ),
       vscode.commands.registerCommand("cursorPets.clearNotifications", () => this.clearNotifications()),
+      vscode.commands.registerCommand("cursorPets.startFloatingPet", () => this.openFloatingPet()),
+      vscode.commands.registerCommand("cursorPets.diagnoseStartup", () => this.diagnoseStartup()),
       vscode.workspace.onDidSaveTextDocument((document) => this.announce("success", "File saved", path.basename(document.fileName), "Workspace")),
       vscode.window.onDidChangeActiveTextEditor((editor) => {
         if (editor) {
@@ -151,6 +159,7 @@ class CursorPetsController implements vscode.Disposable {
       this.refreshDiagnostics();
       this.touchActivity("CursorPets is awake.");
       this.render();
+      this.scheduleAutoFloat();
     });
   }
 
@@ -158,10 +167,17 @@ class CursorPetsController implements vscode.Disposable {
     if (this.inactivityTimer) {
       clearTimeout(this.inactivityTimer);
     }
+    for (const timer of this.startupTimers) {
+      clearTimeout(timer);
+    }
     for (const disposable of this.disposables) {
       disposable.dispose();
     }
-    this.floatingHost.dispose();
+    if (vscode.workspace.getConfiguration("cursorPets").get("float.keepAliveOnReload", true)) {
+      console.log("CursorPets leaving floating helper alive during shutdown.");
+    } else {
+      this.floatingHost.dispose();
+    }
   }
 
   private createInitialState(): PetState {
@@ -442,7 +458,7 @@ class CursorPetsController implements vscode.Disposable {
     }
   }
 
-  private async openFloatingPet(): Promise<void> {
+  private async openFloatingPet(announceLaunch = true): Promise<void> {
     if (process.platform !== "darwin") {
       vscode.window.showWarningMessage("CursorPets floating mode is currently implemented for macOS only.");
       return;
@@ -450,12 +466,44 @@ class CursorPetsController implements vscode.Disposable {
 
     const pet = this.catalog.pets.find((candidate) => candidate.id === this.state.selectedPetId);
     try {
-      await this.floatingHost.show({ state: this.state, pet });
-      this.announce("success", "Floating pet launched", pet?.name ?? "CursorPet", "CursorPets");
+      await this.floatingHost.show(this.createFloatingSnapshot(pet));
+      if (announceLaunch) {
+        this.announce("success", "Floating pet launched", pet?.name ?? "CursorPet", "CursorPets");
+      }
     } catch (error) {
+      console.error("CursorPets floating pet launch failed.", error);
       this.announce("error", "Floating pet failed", String(error), "CursorPets");
       vscode.window.showErrorMessage(`CursorPets could not launch floating mode: ${String(error)}`);
     }
+  }
+
+  private scheduleAutoFloat(): void {
+    if (!vscode.workspace.getConfiguration("cursorPets").get("float.autoStart", true)) {
+      console.log("CursorPets auto-start disabled.");
+      return;
+    }
+
+    for (const delay of [250, 1_500, 5_000]) {
+      const timer = setTimeout(() => {
+        console.log(`CursorPets auto-start attempt after ${delay}ms.`);
+        void this.openFloatingPet(false);
+      }, delay);
+      this.startupTimers.push(timer);
+    }
+  }
+
+  private diagnoseStartup(): void {
+    const config = vscode.workspace.getConfiguration("cursorPets");
+    const message = [
+      "CursorPets diagnostics",
+      `enabled=${config.get("enabled", true)}`,
+      `float.autoStart=${config.get("float.autoStart", true)}`,
+      `platform=${process.platform}`,
+      `helper=${this.floatingHost.helperPath}`,
+      `state=${this.floatingHost.snapshotPath}`
+    ].join("\n");
+    vscode.window.showInformationMessage(message, { modal: true });
+    console.log(message);
   }
 
   private refreshDiagnostics(): void {
@@ -566,7 +614,19 @@ class CursorPetsController implements vscode.Disposable {
     this.statusBar.text = this.state.enabled ? `$(sparkle) ${pet?.name ?? "CursorPet"}` : "$(circle-slash) CursorPets";
     this.statusBar.show();
     this.provider.update();
-    void this.floatingHost.update({ state: this.state, pet });
+    void this.floatingHost.update(this.createFloatingSnapshot(pet));
+  }
+
+  private createFloatingSnapshot(pet: PetDefinition | undefined): FloatingPetSnapshot {
+    const config = vscode.workspace.getConfiguration("cursorPets");
+    return {
+      state: this.state,
+      pet,
+      options: {
+        backgroundOpacity: clamp(config.get("float.backgroundOpacity", 0.32), 0, 1),
+        messageOpacity: clamp(config.get("float.messageOpacity", 0.42), 0, 1)
+      }
+    };
   }
 }
 
@@ -580,13 +640,23 @@ class FloatingPetHost implements vscode.Disposable {
     this.scriptPath = context.asAbsolutePath(path.join("floating-host", "macos", "CursorPetsFloat.swift"));
   }
 
+  get helperPath(): string {
+    return this.scriptPath;
+  }
+
+  get snapshotPath(): string {
+    return this.statePath;
+  }
+
   async show(snapshot: FloatingPetSnapshot): Promise<void> {
     await this.update(snapshot);
 
     if (this.process && !this.process.killed) {
+      console.log("CursorPets floating helper already running.");
       return;
     }
 
+    console.log("CursorPets launching floating helper.", this.scriptPath);
     const floatingProcess = spawn("/usr/bin/swift", [this.scriptPath, this.statePath], {
       detached: true,
       stdio: "ignore"
@@ -734,6 +804,10 @@ function notificationMood(level: PetNotificationLevel): PetMood {
     default:
       return "focused";
   }
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }
 
 async function fetchGitPetsDefinition(url: string): Promise<PetDefinition> {

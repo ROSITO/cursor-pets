@@ -4,6 +4,12 @@ import Foundation
 struct Snapshot: Decodable {
   let state: PetState
   let pet: Pet?
+  let options: FloatingOptions?
+}
+
+struct FloatingOptions: Decodable {
+  let backgroundOpacity: Double?
+  let messageOpacity: Double?
 }
 
 struct PetState: Decodable {
@@ -68,18 +74,19 @@ final class PetView: NSView {
     let message = enabled ? snapshot?.state.message ?? "Ready when you are." : "Paused"
 
     context.clear(bounds)
-    drawBackground(in: context, rect: bounds)
+    drawBackground(in: context, rect: bounds, opacity: CGFloat(snapshot?.options?.backgroundOpacity ?? 0.32))
+    let petArea = CGRect(x: bounds.minX + 18, y: bounds.minY + 102, width: bounds.width - 36, height: bounds.height - 118)
     if snapshot?.pet?.asset.type == "spritesheet", let image = loadImage(entry) {
-      drawSpritesheetPet(image, in: context, rect: bounds.insetBy(dx: 18, dy: 48), mood: mood, enabled: enabled, asset: snapshot?.pet?.asset)
+      drawSpritesheetPet(image, in: context, rect: petArea, mood: mood, enabled: enabled, asset: snapshot?.pet?.asset)
     } else {
-      drawPet(in: context, rect: bounds.insetBy(dx: 26, dy: 54), entry: entry, mood: mood, enabled: enabled)
+      drawPet(in: context, rect: petArea.insetBy(dx: 8, dy: 8), entry: entry, mood: mood, enabled: enabled)
     }
-    drawMessage(message, in: bounds)
+    drawMessage(message, in: bounds, opacity: CGFloat(snapshot?.options?.messageOpacity ?? 0.42))
   }
 
-  private func drawBackground(in context: CGContext, rect: NSRect) {
+  private func drawBackground(in context: CGContext, rect: NSRect, opacity: CGFloat) {
     let path = CGPath(roundedRect: rect.insetBy(dx: 6, dy: 6), cornerWidth: 22, cornerHeight: 22, transform: nil)
-    context.setFillColor(NSColor(calibratedWhite: 0.08, alpha: 0.62).cgColor)
+    context.setFillColor(NSColor(calibratedWhite: 0.08, alpha: opacity).cgColor)
     context.addPath(path)
     context.fillPath()
   }
@@ -165,14 +172,14 @@ final class PetView: NSView {
     return image
   }
 
-  private func drawMessage(_ message: String, in rect: NSRect) {
-    let messageRect = CGRect(x: 18, y: 16, width: rect.width - 36, height: 78)
+  private func drawMessage(_ message: String, in rect: NSRect, opacity: CGFloat) {
+    let messageRect = CGRect(x: 18, y: 12, width: rect.width - 36, height: 70)
     let bubblePath = CGPath(roundedRect: messageRect.insetBy(dx: -10, dy: -8), cornerWidth: 14, cornerHeight: 14, transform: nil)
     guard let context = NSGraphicsContext.current?.cgContext else {
       return
     }
 
-    context.setFillColor(NSColor(calibratedWhite: 0.04, alpha: 0.54).cgColor)
+    context.setFillColor(NSColor(calibratedWhite: 0.04, alpha: opacity).cgColor)
     context.addPath(bubblePath)
     context.fillPath()
 
@@ -211,7 +218,7 @@ final class PetView: NSView {
 
 final class FloatingPetApp: NSObject, NSApplicationDelegate {
   private let statePath: String
-  private let petView = PetView(frame: NSRect(x: 0, y: 0, width: 260, height: 320))
+  private let petView = PetView(frame: NSRect(x: 0, y: 0, width: 260, height: 340))
   private var window: NSPanel?
   private var timer: Timer?
 
@@ -221,7 +228,7 @@ final class FloatingPetApp: NSObject, NSApplicationDelegate {
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     let panel = NSPanel(
-      contentRect: NSRect(x: 1200, y: 590, width: 260, height: 320),
+      contentRect: NSRect(x: 1200, y: 570, width: 260, height: 340),
       styleMask: [.borderless, .nonactivatingPanel],
       backing: .buffered,
       defer: false

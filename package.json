@@ -2,7 +2,7 @@
   "name": "cursor-pets",
   "displayName": "CursorPets",
   "description": "Bring GitPets-style Codex pets into Cursor as a lightweight coding companion.",
-  "version": "0.6.2",
+  "version": "0.7.4",
   "publisher": "rosito",
   "license": "UNLICENSED",
   "repository": {
@@ -99,6 +99,25 @@
           "type": "boolean",
           "default": true,
           "description": "Let the pet react when diagnostics change."
+        },
+        "cursorPets.float.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically open the floating pet when CursorPets activates."
+        },
+        "cursorPets.float.backgroundOpacity": {
+          "type": "number",
+          "default": 0.32,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Controls the floating pet window background opacity."
+        },
+        "cursorPets.float.messageOpacity": {
+          "type": "number",
+          "default": 0.42,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Controls the floating pet message bubble opacity."
         }
       }
     },

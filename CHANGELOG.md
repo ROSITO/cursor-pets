@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.4
+
+- Kept the floating helper alive during Cursor reload by default.
+- Added `cursorPets.float.keepAliveOnReload`.
+
+## 0.7.3
+
+- Added multiple delayed auto-float attempts after activation.
+- Added manual start and startup diagnostic commands.
+
+## 0.7.2
+
+- Added eager activation to make auto-float reliable after Cursor reload.
+- Added extension-host logs for activation and floating helper launch.
+
+## 0.7.1
+
+- Added startup activation so CursorPets can auto-launch the floating pet without manually opening the extension view.
+
+## 0.7.0
+
+- Added automatic floating pet launch on activation.
+- Added configurable floating window and message opacity.
+- Made the floating window background more transparent by default.
+
+## 0.6.3
+
+- Moved the floating message bubble lower and reserved a separate pet drawing area so text no longer overlaps the pet.
+
 ## 0.6.2
 
 - Fixed floating pet text rendering so messages wrap across multiple lines instead of truncating on the first line.
