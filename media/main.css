@@ -169,7 +169,6 @@ body {
 
 #message {
   display: block;
-  white-space: pre-line;
   word-break: break-word;
   line-height: 1.45;
   margin: 4px 0 10px;
@@ -178,8 +177,19 @@ body {
   font-weight: 500;
 }
 
-#message::first-line {
+#message .pet-message-title {
+  display: block;
   font-weight: 800;
+  line-height: 1.35;
+  margin-bottom: 6px;
+}
+
+#message .pet-message-body {
+  display: block;
+  white-space: pre-line;
+  font-weight: 450;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--fg) 92%, transparent);
 }
 
 .toolbar {

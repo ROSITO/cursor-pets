@@ -925,7 +925,7 @@ class CursorPetsController implements vscode.Disposable {
       }
       message = `${messageHeadline}\n${detail}`;
     } else {
-      message = body ? `${title}: ${body}` : title;
+      message = body ? `${title}\n${body}` : title;
     }
     this.state = {
       ...this.state,
@@ -965,7 +965,7 @@ class CursorPetsController implements vscode.Disposable {
       this.state = {
         ...this.state,
         mood: "waiting",
-        message: message === "I'll keep quiet." ? "Still quiet." : "Quiet moment. I am still here."
+        message: message === "I'll keep quiet." ? "Still quiet." : "Quiet moment.\nI am still here."
       };
       this.render();
     }, INACTIVITY_MS);

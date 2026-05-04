@@ -1,9 +1,17 @@
 # Changelog
 
+## 0.14.7
+
+- **Chore**: **`BESOINS.md` is no longer tracked in Git** or included in the VSIX (`.gitignore` + `.vscodeignore`). Keep the file locally if you rely on it. README updated.
+
+## 0.14.6
+
+- **Pet message bubble** (sidebar webview + macOS float): **first line in bold** (title), following lines as regular body when the message contains at least one **newline** (`\n`). Same layout in **`media/main.js` / `main.css`** and **`drawMessage`** in the Swift helper (slightly taller bubble). **`announce`** without `messageHeadline` now joins title and body with `\n` instead of `": "` so the bubble matches notifications.
+
 ## 0.14.5
 
 - **Float → chat focus**: after the signal file is detected, CursorPets now runs **`osascript`** (`tell application "<appName>" to activate` using `vscode.env.appName`) so **Cursor becomes the frontmost app** before `openAgentsView` / `focusAuxiliaryBar` / `aichat.view` / `chat.focusInput`. Clicking the float leaves Cursor in the background, so workbench commands were previously a no-op for focus. macOS may prompt once for **Automation** permission to let Cursor control itself via Apple Events.
-- **Documentation**: `README.md` and `BESOINS.md` describe the full **float → signal file → extension → activate Cursor → focus Agent/chat** path, LaunchAgent **four** `ProgramArguments`, and the optional **Automation** prompt.
+- **Documentation**: `README.md` describes the full **float → signal file → extension → activate Cursor → focus Agent/chat** path, LaunchAgent **four** `ProgramArguments`, and the optional **Automation** prompt.
 
 ## 0.14.4
 

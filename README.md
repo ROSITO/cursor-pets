@@ -76,7 +76,7 @@ Likely surfaces:
 
 ## Local Development
 
-Product requirements and backlog (French): [BESOINS.md](./BESOINS.md).
+French requirements / backlog notes (`BESOINS.md`) are intentionally **not** versioned in this repository; keep a local copy if you use that checklist.
 
 Install dependencies:
 
@@ -126,6 +126,7 @@ The CursorPets panel also includes direct controls for the common actions, so th
 
 The native float is a **Swift** helper (`floating-host/macos/CursorPetsFloat.swift`), not a webview: it reads `floating-pet-state.json` and renders spritesheets (e.g. GitPets Steve) from `pet.asset.entry`.
 
+- **Pet bubble text**: if `state.message` contains a **newline**, the **first line** is shown as a **bold title** and the **rest** as body (sidebar + float). Announcements already use `headline\ndetail`; other call sites can use the same pattern.
 - **« Ouvrir le chat Cursor »** is a real **`NSButton`**. On click it overwrites `floating-pet-open-chat.signal` next to the state file (same global storage folder as the JSON).
 - The extension uses **`fs.watchFile`** (not `fs.watch`) so macOS reliably sees each overwrite from the float process.
 - It then shows a short **status bar** message, runs **AppleScript** to **`activate`** the Cursor app (`vscode.env.appName`), and runs a sequence of **`workbench` / `aichat` / `chat.focusInput`** commands so the **ongoing** Agent / chat surface can take focus—same intent as **`CursorPets: Open AI Chat`** from the palette.

@@ -72,7 +72,7 @@ final class PetView: NSView {
   private let chatStripHeight: CGFloat = 36
   private let edgePad: CGFloat = 10
   private let layoutGap: CGFloat = 8
-  private let messageBubbleHeight: CGFloat = 70
+  private let messageBubbleHeight: CGFloat = 86
 
   var snapshot: Snapshot? {
     didSet {
@@ -257,17 +257,51 @@ final class PetView: NSView {
     context.addPath(bubblePath)
     context.fillPath()
 
-    let paragraph = NSMutableParagraphStyle()
-    paragraph.alignment = .center
-    paragraph.lineBreakMode = .byWordWrapping
-    paragraph.lineSpacing = 2
+    let (head, body) = bubbleTitleAndBody(message)
+    let headT = truncateForBubble(head, maxLen: 72)
+    let bodyT = truncateForBubble(body, maxLen: 220)
 
-    let attributes: [NSAttributedString.Key: Any] = [
-      .font: NSFont.systemFont(ofSize: message.count > 90 ? 11 : 12, weight: .semibold),
-      .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.88),
-      .paragraphStyle: paragraph
-    ]
-    let attributed = NSAttributedString(string: shortenedMessage(message), attributes: attributes)
+    let bodyParagraph = NSMutableParagraphStyle()
+    bodyParagraph.alignment = .center
+    bodyParagraph.lineBreakMode = .byWordWrapping
+    bodyParagraph.lineSpacing = 2
+
+    let attributed = NSMutableAttributedString()
+
+    if headT.isEmpty {
+      let fontSize: CGFloat = bodyT.count > 100 ? 11 : 12
+      let attrs: [NSAttributedString.Key: Any] = [
+        .font: NSFont.systemFont(ofSize: fontSize, weight: .semibold),
+        .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.88),
+        .paragraphStyle: bodyParagraph
+      ]
+      let fallback = bodyT.isEmpty ? "Ready when you are." : bodyT
+      attributed.append(NSAttributedString(string: fallback, attributes: attrs))
+    } else {
+      let headParagraph = NSMutableParagraphStyle()
+      headParagraph.alignment = .center
+      headParagraph.lineBreakMode = .byWordWrapping
+      headParagraph.lineSpacing = 2
+      headParagraph.paragraphSpacing = 4
+
+      let headAttrs: [NSAttributedString.Key: Any] = [
+        .font: NSFont.systemFont(ofSize: 12, weight: .bold),
+        .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.95),
+        .paragraphStyle: headParagraph
+      ]
+      attributed.append(NSAttributedString(string: headT + "\n", attributes: headAttrs))
+
+      if bodyT.isEmpty == false {
+        let bodyFont: CGFloat = bodyT.count > 160 ? 10 : 11
+        let bodyAttrs: [NSAttributedString.Key: Any] = [
+          .font: NSFont.systemFont(ofSize: bodyFont, weight: .regular),
+          .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.82),
+          .paragraphStyle: bodyParagraph
+        ]
+        attributed.append(NSAttributedString(string: bodyT, attributes: bodyAttrs))
+      }
+    }
+
     attributed.draw(
       with: messageRect,
       options: [.usesLineFragmentOrigin, .usesFontLeading, .truncatesLastVisibleLine],
@@ -275,18 +309,27 @@ final class PetView: NSView {
     )
   }
 
-  private func shortenedMessage(_ message: String) -> String {
-    let collapsed = message
+  /// First line = title; remainder = body (same convention as the webview).
+  private func bubbleTitleAndBody(_ raw: String) -> (title: String, body: String) {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let idx = trimmed.firstIndex(of: "\n") else {
+      return ("", trimmed)
+    }
+    let title = String(trimmed[..<idx]).trimmingCharacters(in: .whitespacesAndNewlines)
+    let rest = String(trimmed[trimmed.index(after: idx)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+    return (title, rest)
+  }
+
+  private func truncateForBubble(_ segment: String, maxLen: Int) -> String {
+    let collapsed = segment
       .replacingOccurrences(of: "\n", with: " ")
       .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
       .trimmingCharacters(in: .whitespacesAndNewlines)
-
-    if collapsed.count <= 180 {
+    if collapsed.count <= maxLen {
       return collapsed
     }
-
-    let endIndex = collapsed.index(collapsed.startIndex, offsetBy: 177)
-    return "\(collapsed[..<endIndex])..."
+    let end = collapsed.index(collapsed.startIndex, offsetBy: max(0, maxLen - 3))
+    return "\(collapsed[..<end])..."
   }
 }
 

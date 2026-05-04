@@ -55,6 +55,42 @@ openSourceEl.addEventListener("click", () => {
   });
 });
 
+/** First line = bold title; rest = body (supports multiple lines via \\n). */
+function renderPetMessage(el, raw, enabled) {
+  el.replaceChildren();
+  if (!enabled) {
+    el.textContent = "Disabled in settings.";
+    return;
+  }
+  const t = String(raw ?? "").trim();
+  if (!t) {
+    el.textContent = "Ready when you are.";
+    return;
+  }
+  const nl = t.indexOf("\n");
+  if (nl === -1) {
+    el.textContent = t;
+    return;
+  }
+  const title = t.slice(0, nl).trim();
+  const body = t.slice(nl + 1).trimEnd();
+  if (title) {
+    const strong = document.createElement("strong");
+    strong.className = "pet-message-title";
+    strong.textContent = title;
+    el.appendChild(strong);
+    el.appendChild(document.createElement("br"));
+  }
+  if (body) {
+    const span = document.createElement("span");
+    span.className = "pet-message-body";
+    span.textContent = body;
+    el.appendChild(span);
+  } else if (!title) {
+    el.textContent = t;
+  }
+}
+
 window.addEventListener("message", (event) => {
   const payload = event.data;
   if (payload?.type !== "cursorPets.update") {
@@ -101,7 +137,7 @@ window.addEventListener("message", (event) => {
   petEl.setAttribute("aria-label", pet?.name ?? "CursorPet");
 
   petNameEl.textContent = state.enabled ? pet?.name ?? "CursorPet" : "CursorPets paused";
-  messageEl.textContent = state.enabled ? state.message : "Disabled in settings.";
+  renderPetMessage(messageEl, state.enabled ? state.message : "", state.enabled);
   moodEl.textContent = state.mood;
   diagnosticsEl.textContent = `${state.diagnostics.errors} errors, ${state.diagnostics.warnings} warnings`;
   attributionEl.textContent = pet ? `by ${pet.author} - ${pet.description}` : "No pet manifest loaded.";
